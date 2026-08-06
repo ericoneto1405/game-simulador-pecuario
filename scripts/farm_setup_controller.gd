@@ -42,22 +42,14 @@ const FARM_TIMEZONE := "America/Bahia"
 const CLIMATE_ICON_DROUGHT := preload("res://assets/ui/icons/climate-drought.svg")
 const CLIMATE_ICON_TRANSITION := preload("res://assets/ui/icons/climate-transition.svg")
 const CLIMATE_ICON_RAINY := preload("res://assets/ui/icons/climate-rainy.svg")
-const STARTING_CASH := 50000
-const PURCHASE_PRICE_PER_ANIMAL := 3000
-const SALE_PRICE_PER_ANIMAL := 2850
+const STARTING_CASH := EconomyService.STARTING_CASH
+const PURCHASE_PRICE_PER_ANIMAL := EconomyService.PURCHASE_PRICE_PER_ANIMAL
+const SALE_PRICE_PER_ANIMAL := EconomyService.SALE_PRICE_PER_ANIMAL
+const MARKET_BUY_PRICE_PER_KG := EconomyService.MARKET_BUY_PRICE_PER_KG
+const MARKET_SELL_PRICE_FACTOR := EconomyService.MARKET_SELL_PRICE_FACTOR
 const MARKET_TRANSPORT_BASE_COST := 250
 const MARKET_TRANSPORT_COST_PER_ANIMAL := 50
 const MARKET_DOCUMENT_BASE_COST := 100
-const MARKET_BUY_PRICE_PER_KG := {
-	"female_calves": 12.5,
-	"male_calves": 13.0,
-	"heifers": 10.2,
-	"cows": 8.2,
-	"steers": 10.8,
-	"oxen": 9.6,
-	"bulls": 12.0,
-}
-const MARKET_SELL_PRICE_FACTOR := 0.95
 const TOTAL_FARM_CAPACITY := 24
 const MINERAL_PACKAGE_KG := 25.0
 const MINERAL_PACKAGE_PRICE := 180
@@ -2494,57 +2486,20 @@ func _selected_market_quantity() -> int:
 
 
 func _market_category_profile(category: String) -> Dictionary:
-	var age_by_category := {
-		"female_calves": 90,
-		"male_calves": 90,
-		"heifers": 520,
-		"cows": 1100,
-		"steers": 520,
-		"oxen": 900,
-		"bulls": 1100,
-	}
-	var weight_by_category := {
-		"female_calves": 105.0,
-		"male_calves": 115.0,
-		"heifers": 285.0,
-		"cows": 410.0,
-		"steers": 320.0,
-		"oxen": 480.0,
-		"bulls": 620.0,
-	}
-	return {
-		"age_days": int(age_by_category.get(category, 520)),
-		"weight_kg": float(weight_by_category.get(category, average_weight_kg)),
-	}
+	return MarketService.category_profile(category)
 
 
 func _market_transaction_costs(quantity: int) -> Dictionary:
-	return {
-		"transport": MARKET_TRANSPORT_BASE_COST + MARKET_TRANSPORT_COST_PER_ANIMAL * quantity,
-		"documents": MARKET_DOCUMENT_BASE_COST,
-	}
+	return MarketService.transaction_costs(quantity)
 
 
 func _market_purchase_quote() -> Dictionary:
-	var category := _selected_market_category()
-	var quantity := _selected_market_quantity()
-	var profile := _market_category_profile(category)
-	var animal_price := roundi(
-		float(profile["weight_kg"]) * float(MARKET_BUY_PRICE_PER_KG.get(category, 10.0))
+	return MarketService.purchase_quote(
+		_selected_market_category(),
+		_selected_market_quantity(),
+		_selected_market_breed(),
+		cash_balance
 	)
-	var costs := _market_transaction_costs(quantity)
-	var animals_total := animal_price * quantity
-	return {
-		"category": category,
-		"quantity": quantity,
-		"age_days": int(profile["age_days"]),
-		"weight_kg": float(profile["weight_kg"]),
-		"animal_price": animal_price,
-		"animals_total": animals_total,
-		"transport": int(costs["transport"]),
-		"documents": int(costs["documents"]),
-		"total": animals_total + int(costs["transport"]) + int(costs["documents"]),
-	}
 
 
 func _market_selected_sale_animals() -> Array[Dictionary]:
@@ -2559,33 +2514,7 @@ func _market_selected_sale_animals() -> Array[Dictionary]:
 
 
 func _market_sale_quote() -> Dictionary:
-	var selected_animals := _market_selected_sale_animals()
-	var gross_total := 0
-	var pregnant_count := 0
-	var sanitary_alerts := 0
-	for animal in selected_animals:
-		var category := str(animal.get("category", "heifers"))
-		gross_total += roundi(
-			float(animal.get("weight_kg", 0.0))
-			* float(MARKET_BUY_PRICE_PER_KG.get(category, 10.0))
-			* MARKET_SELL_PRICE_FACTOR
-		)
-		if bool(animal.get("pregnant", false)):
-			pregnant_count += 1
-		if str(animal.get("sanitary_state", "Saudável")) != "Saudável":
-			sanitary_alerts += 1
-	var costs := _market_transaction_costs(selected_animals.size())
-	var transaction_cost := 0
-	if not selected_animals.is_empty():
-		transaction_cost = int(costs["transport"]) + int(costs["documents"])
-	return {
-		"quantity": selected_animals.size(),
-		"gross": gross_total,
-		"costs": transaction_cost,
-		"net": maxi(gross_total - transaction_cost, 0),
-		"pregnant": pregnant_count,
-		"sanitary_alerts": sanitary_alerts,
-	}
+	return MarketService.sale_quote(_market_selected_sale_animals())
 
 
 func _market_projected_capacity(category: String, quantity: int) -> Dictionary:
@@ -2613,101 +2542,29 @@ func _refresh_market_sale_list() -> void:
 		var category := str(animal.get("category", "heifers"))
 		if category_filter != "all" and category != category_filter:
 			continue
-		var price := roundi(
-			float(animal.get("weight_kg", 0.0))
-			* float(MARKET_BUY_PRICE_PER_KG.get(category, 10.0))
-			* MARKET_SELL_PRICE_FACTOR
-		)
-		var reproductive_state := " | PRENHE" if bool(animal.get("pregnant", false)) else ""
-		market_sale_list.add_item("%s • %s • %.0f kg%s • R$ %s" % [
-			str(animal.get("id", "")),
-			_animal_category_display_name(category),
-			float(animal.get("weight_kg", 0.0)),
-			reproductive_state,
-			_format_money(price),
-		])
+		var entry: Dictionary = MarketService.sale_list_entry(animal, _format_money)
+		market_sale_list.add_item(entry["text"])
 		var item_index := market_sale_list.item_count - 1
-		market_sale_list.set_item_metadata(item_index, str(animal.get("id", "")))
-		market_sale_list.set_item_tooltip(item_index, "%s\nRaça: %s\nIdade: %d meses\nSanidade: %s" % [
-			str(animal.get("id", "")),
-			_breed_display_name(str(animal.get("breed", DEFAULT_CATTLE_BREED))),
-			int(animal.get("age_days", 0)) / 30,
-			str(animal.get("sanitary_state", "Saudável")),
-		])
+		market_sale_list.set_item_metadata(item_index, entry["metadata"])
+		market_sale_list.set_item_tooltip(item_index, entry["tooltip"])
 
 
 func _market_rules_text(event_message: String = "") -> String:
 	var sale := _market_sale_quote()
-	if _selected_market_mode() == "sell":
-		var sale_text := (
-			"Selecione os animais na lista abaixo.\n"
-			+ "O valor líquido já desconta transporte e documentação."
-		)
-		if int(sale["quantity"]) > 0:
-			sale_text = (
-				"%d animal(is) selecionado(s)\n"
-				+ "Bruto: R$ %s | Custos: R$ %s\n"
-				+ "VALOR LÍQUIDO: R$ %s"
-			) % [
-				int(sale["quantity"]), _format_money(int(sale["gross"])),
-				_format_money(int(sale["costs"])), _format_money(int(sale["net"])),
-			]
-			if int(sale["pregnant"]) > 0:
-				sale_text += "\nATENÇÃO: inclui %d fêmea(s) prenhe(s)." % int(sale["pregnant"])
-			if int(sale["sanitary_alerts"]) > 0:
-				sale_text += "\nATENÇÃO: %d animal(is) com alerta sanitário." % int(sale["sanitary_alerts"])
-		if event_message.is_empty():
-			return sale_text
-		return "%s\n\n%s" % [event_message, sale_text]
-
-	var area_text := "pendente"
-	if _using_general_farm_area():
-		area_text = "pronta — área geral"
-	elif _formed_paddock_count() >= 1:
-		area_text = "pronta — pasto formado"
-	var gate_text := "pronta" if gate_installed else "pendente"
 	var purchase := _market_purchase_quote()
-	var cash_text := "suficiente" if cash_balance >= int(purchase["total"]) else "insuficiente"
-	var projected_capacity := _market_projected_capacity(
-		str(purchase["category"]), int(purchase["quantity"])
+	return MarketService.rules_text(
+		event_message,
+		_selected_market_mode() == "sell",
+		sale,
+		purchase,
+		cash_balance,
+		_has_livestock_area(),
+		_using_general_farm_area(),
+		_formed_paddock_count(),
+		gate_installed,
+		_format_money,
+		_market_projected_capacity(str(purchase["category"]), int(purchase["quantity"]))
 	)
-	var capacity_text := "indisponível sem área cercada"
-	if bool(projected_capacity.get("available", false)):
-		capacity_text = "%d animais para capacidade estimada de %d" % [
-			int(projected_capacity["herd_size"]), int(projected_capacity["capacity"]),
-		]
-		if int(projected_capacity["herd_size"]) > int(projected_capacity["capacity"]):
-			capacity_text += " — SUPERLOTAÇÃO"
-	var rules := (
-		"%d %s • %s\n"
-		+ "%d meses • %.0f kg por animal • R$ %s/cabeça\n\n"
-		+ "Animais: R$ %s\n"
-		+ "+ Transporte: R$ %s | + Documentos: R$ %s\n"
-		+ "TOTAL: R$ %s\n"
-		+ "Saldo depois da compra: R$ %s\n\n"
-		+ "ESTRUTURA\n"
-		+ "Área: %s | Porteira: %s | Caixa: %s\n"
-		+ "Lotação: %s"
-	) % [
-		int(purchase["quantity"]),
-		_animal_category_display_name(str(purchase["category"])).to_lower(),
-		_breed_display_name(_selected_market_breed()),
-		int(purchase["age_days"]) / 30,
-		float(purchase["weight_kg"]),
-		_format_money(int(purchase["animal_price"])),
-		_format_money(int(purchase["animals_total"])),
-		_format_money(int(purchase["transport"])),
-		_format_money(int(purchase["documents"])),
-		_format_money(int(purchase["total"])),
-		_format_money(maxi(cash_balance - int(purchase["total"]), 0)),
-		area_text,
-		gate_text,
-		cash_text,
-		capacity_text,
-	]
-	if event_message.is_empty():
-		return rules
-	return "%s\n\n%s" % [event_message, rules]
 
 
 func _polygon_center(points: PackedVector2Array) -> Vector2:
@@ -4641,24 +4498,14 @@ func _update_nutrition_ui() -> void:
 
 func _buy_animals() -> void:
 	var purchase := _market_purchase_quote()
-	if not _has_livestock_area():
-		market_info.text = _market_rules_text(
-			"Falta uma área cercada.\n"
-			+ "Cerque toda a propriedade ou forme um pasto na Loja Rural."
-		)
-		return
-	if not gate_installed:
-		market_info.text = _market_rules_text(
-			"Falta uma porteira.\n"
-			+ "Compre na Loja Rural e clique sobre a cerca construída."
-		)
-		return
-	var purchase_total := int(purchase["total"])
-	if cash_balance < purchase_total:
-		market_info.text = _market_rules_text("Caixa insuficiente.\nCompra: R$ %s | Saldo: R$ %s" % [
-			_format_money(purchase_total),
-			_format_money(cash_balance),
-		])
+	var validation: Dictionary = MarketService.validate_purchase(
+		_has_livestock_area(),
+		gate_installed,
+		cash_balance,
+		int(purchase["total"])
+	)
+	if not validation["valid"]:
+		market_info.text = _market_rules_text(str(validation["message"]))
 		return
 
 	if not herd_created:
@@ -4677,7 +4524,7 @@ func _buy_animals() -> void:
 			selected_quantity,
 			_animal_category_display_name(selected_category).to_lower(),
 		],
-		-purchase_total
+		-int(purchase["total"])
 	)
 	_update_herd_marker()
 	_update_herd_status("Compra de %d bovinos registrada." % selected_quantity)
@@ -4689,15 +4536,16 @@ func _buy_animals() -> void:
 		selected_quantity,
 		_animal_category_display_name(selected_category).to_lower(),
 		_breed_display_name(selected_breed),
-		_format_money(purchase_total),
+		_format_money(int(purchase["total"])),
 		_format_money(cash_balance),
 	])
 
 
 func _sell_animals() -> void:
 	var selected_animals := _market_selected_sale_animals()
-	if selected_animals.is_empty():
-		market_info.text = _market_rules_text("Selecione ao menos um animal para vender.")
+	var validation: Dictionary = MarketService.validate_sale(selected_animals)
+	if not validation["valid"]:
+		market_info.text = _market_rules_text(str(validation["message"]))
 		return
 
 	var sale := _market_sale_quote()
@@ -4707,9 +4555,7 @@ func _sell_animals() -> void:
 	if selected_ids.size() != selected_animals.size():
 		market_info.text = _market_rules_text("A seleção mudou. Revise os animais antes de vender.")
 		return
-	for animal_index in range(herd_animals.size() - 1, -1, -1):
-		if selected_ids.has(str(herd_animals[animal_index].get("id", ""))):
-			herd_animals.remove_at(animal_index)
+	herd_animals = MarketService.remove_animals_from_herd(herd_animals, selected_animals)
 	_sync_herd_size()
 	_sync_reproduction_after_market_sale()
 	var sale_total := int(sale["net"])
