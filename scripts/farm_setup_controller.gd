@@ -1,6 +1,8 @@
 extends Node2D
 
 const VegetationManagerClass := preload("res://scripts/vegetation_manager.gd")
+const SaveManagerClass := preload("res://scripts/save_manager.gd")
+const GameStoreClass := preload("res://scripts/game_store.gd")
 
 enum DivisionMode {
 	NONE,
@@ -450,6 +452,18 @@ var selected_farm_pasture := 1
 var terrain_info_enabled := false
 var vegetation_manager := VegetationManagerClass.new()
 var vegetation_last_event := "Vegetação acompanhada diariamente."
+var game_store := GameStoreClass.new()
+
+var _finance_ui: FinanceUiManager
+var _water_ui: WaterUiManager
+var _agriculture_ui: AgricultureUiManager
+var _climate_ui: ClimateUiManager
+var _sanitary_ui: SanitaryUiManager
+var _reproduction_ui: ReproductionUiManager
+var _nutrition_ui: NutritionUiManager
+var _service_order_ui: ServiceOrderUiManager
+var _herd_ui: HerdUiManager
+var _market_ui: MarketUiManager
 
 
 func _ready() -> void:
@@ -558,6 +572,46 @@ func _ready() -> void:
 	finish_construction_button.pressed.connect(_confirm_construction)
 	cancel_free_construction_button.pressed.connect(_cancel_free_construction)
 	herd_visuals.connect("selection_changed", _on_herd_visual_selection_changed)
+	_finance_ui = FinanceUiManager.new(
+		cash_status, finance_status, buy_animals_button, sell_animals_button, market_sale_list
+	)
+	_water_ui = WaterUiManager.new(water_status)
+	_agriculture_ui = AgricultureUiManager.new(
+		agriculture_status, forage_field_label, select_crop_button, plant_crop_button,
+		prepare_soil_button, harvest_crop_button, use_feed_reserve_button
+	)
+	_climate_ui = ClimateUiManager.new(
+		climate_icon, climate_status, pond_1_label, pond_2_label,
+		pond_1_gauge, pond_2_gauge, river_label,
+		pond_1_visual, pond_2_visual, intermittent_river
+	)
+	_sanitary_ui = SanitaryUiManager.new(
+		sanitary_status, parasite_treatment_button, clinical_medication_button,
+		brucellosis_vaccine_button, clostridiosis_vaccine_button, vitamin_supplement_button
+	)
+	_reproduction_ui = ReproductionUiManager.new(
+		reproduction_status, natural_breeding_button, insemination_button, select_genetics_button
+	)
+	_nutrition_ui = NutritionUiManager.new(
+		nutrition_status, vegetation_rest_button, vegetation_form_button,
+		vegetation_fertilize_button, vegetation_recover_button,
+		buy_mineral_button, buy_supplement_button
+	)
+	_service_order_ui = ServiceOrderUiManager.new(service_order_status)
+	_herd_ui = HerdUiManager.new(
+		herd_status, herd_marker, select_herd_button, herd_selection_info,
+		pasture_1_center, pasture_2_center
+	)
+	_market_ui = MarketUiManager.new(
+		market_info, market_mode_selector, market_category_selector,
+		market_quantity_selector, breed_selector, buy_animals_button,
+		market_sale_filter, market_sale_list, market_select_all_button,
+		market_clear_selection_button, sell_animals_button, sidebar_content,
+		sidebar_scroll, _format_money, _has_livestock_area,
+		_formed_paddock_count, _using_general_farm_area,
+		_selected_market_breed, _animal_category_display_name,
+		_breed_display_name, _normalize_breed
+	)
 	_update_daily_weather()
 	_update_climate_visuals()
 	_update_finance_ui()
@@ -703,37 +757,18 @@ func _on_official_time_synchronized() -> void:
 
 
 func _local_datetime_from_server_unix(unix_utc: int) -> Dictionary:
-	return Time.get_datetime_dict_from_unix_time(unix_utc + server_utc_offset_seconds)
-
-
-func _civil_day_number(year: int, month: int, day: int) -> int:
-	var adjusted_year := year
-	var adjusted_month := month
-	if adjusted_month <= 2:
-		adjusted_year -= 1
-		adjusted_month += 12
-	return (
-		365 * adjusted_year
-		+ floori(adjusted_year / 4.0)
-		- floori(adjusted_year / 100.0)
-		+ floori(adjusted_year / 400.0)
-		+ floori((153 * (adjusted_month - 3) + 2) / 5.0)
-		+ day - 1
+	return CalendarService.local_datetime_from_server_unix(
+		unix_utc, server_utc_offset_seconds
 	)
 
 
+func _civil_day_number(year: int, month: int, day: int) -> int:
+	return CalendarService.civil_day_number(year, month, day)
+
+
 func _days_between_server_dates(from_unix_utc: int, to_unix_utc: int) -> int:
-	if from_unix_utc <= 0 or to_unix_utc <= from_unix_utc:
-		return 0
-	var from_date := _local_datetime_from_server_unix(from_unix_utc)
-	var to_date := _local_datetime_from_server_unix(to_unix_utc)
-	return maxi(
-		_civil_day_number(
-			int(to_date["year"]), int(to_date["month"]), int(to_date["day"])
-		) - _civil_day_number(
-			int(from_date["year"]), int(from_date["month"]), int(from_date["day"])
-		),
-		0
+	return CalendarService.days_between_server_dates(
+		from_unix_utc, to_unix_utc, server_utc_offset_seconds
 	)
 
 
@@ -836,6 +871,73 @@ func _refresh_simulation_ui() -> void:
 		_update_herd_status("Estado atualizado pelo calendário oficial.")
 	else:
 		_update_empty_herd_guidance()
+
+
+func _build_base_state() -> Dictionary:
+	return {
+		"herd_created": herd_created,
+		"herd_size": herd_size,
+		"herd_animals": herd_animals,
+		"herd_pasture": herd_pasture,
+		"herd_categories": herd_categories,
+		"average_weight_kg": average_weight_kg,
+		"body_condition": body_condition,
+		"hunger": hunger,
+		"thirst": thirst,
+		"health": health,
+		"heat_stress": heat_stress,
+		"cash_balance": cash_balance,
+		"transaction_history": transaction_history,
+		"active_service_order": active_service_order,
+		"last_cowboy_activity": last_cowboy_activity,
+		"soil_moisture": soil_moisture,
+		"soil_fertility": soil_fertility,
+		"stored_feed_kg": stored_feed_kg,
+		"feeding_plan_days_remaining": feeding_plan_days_remaining,
+		"pond_level": pond_level,
+		"river_level": river_level,
+		"rainfall_mm": rainfall_mm,
+		"weather_condition": weather_condition,
+		"consecutive_dry_days": consecutive_dry_days,
+		"max_temperature_c": max_temperature_c,
+		"mineral_stock_kg": mineral_stock_kg,
+		"supplement_stock_kg": supplement_stock_kg,
+		"parasite_pressure": parasite_pressure,
+		"parasite_treatment_days_remaining": parasite_treatment_days_remaining,
+		"clinical_medication_days_remaining": clinical_medication_days_remaining,
+		"vitamin_supplement_days_remaining": vitamin_supplement_days_remaining,
+		"sanitary_last_event": sanitary_last_event,
+		"selected_crop_index": selected_crop_index,
+		"field_state": field_state,
+		"crop_days_elapsed": crop_days_elapsed,
+		"pregnant_females": pregnant_females,
+		"gestation_days_remaining": gestation_days_remaining,
+		"calf_age_days": calf_age_days,
+		"offspring_genetics": offspring_genetics,
+		"herd_genetics": herd_genetics,
+		"current_day": current_day,
+		"formatted_date": _formatted_date(),
+		"formatted_datetime": _formatted_server_datetime(),
+		"climate_phase_short": _climate_phase_short(),
+		"climate_phase_color": _climate_phase_color(),
+		"climate_phase_icon": _climate_phase_icon(),
+		"gate_installed": gate_installed,
+		"herd_has_river_access": _herd_has_river_access(),
+		"using_general_farm_area": _using_general_farm_area(),
+		"has_livestock_area": _has_livestock_area(),
+		"vegetation_manager": vegetation_manager,
+		"selected_farm_pasture": selected_farm_pasture,
+		"vegetation_last_event": vegetation_last_event,
+		"breeding_method": breeding_method,
+		"pasture_quality": pasture_quality,
+		"pasture_degradation": pasture_degradation,
+		"forage": forage,
+		"is_breeding_season": _is_breeding_season(),
+		"weaning_age_days": WEANING_AGE_DAYS,
+		"artificial_insemination_cost": ARTIFICIAL_INSEMINATION_COST,
+		"mineral_package_price": MINERAL_PACKAGE_PRICE,
+		"supplement_package_price": SUPPLEMENT_PACKAGE_PRICE,
+	}
 
 
 func _notification(what: int) -> void:
@@ -1696,48 +1798,32 @@ func _construction_callable_from_data(job_data: Dictionary) -> Callable:
 
 
 func _serialize_vector2(value: Vector2) -> Array:
-	return [value.x, value.y]
+	return SaveManagerClass.serialize_vector2(value)
 
 
 func _deserialize_vector2(value) -> Vector2:
-	if value is Array and value.size() >= 2:
-		return Vector2(float(value[0]), float(value[1]))
-	return Vector2.ZERO
+	return SaveManagerClass.deserialize_vector2(value)
 
 
 func _serialize_vector2_array(points: PackedVector2Array) -> Array:
-	var serialized: Array = []
-	for point in points:
-		serialized.append(_serialize_vector2(point))
-	return serialized
+	return SaveManagerClass.serialize_vector2_array(points)
 
 
 func _deserialize_vector2_array(serialized_points) -> PackedVector2Array:
-	var points := PackedVector2Array()
-	if serialized_points is Array:
-		for serialized_point in serialized_points:
-			points.append(_deserialize_vector2(serialized_point))
-	return points
+	return SaveManagerClass.deserialize_vector2_array(serialized_points)
 
 
 func _serialize_construction_job() -> Dictionary:
-	if not construction_job_active or construction_job_data.is_empty():
-		return {}
-	var server_now := _current_server_unix_utc()
-	var remaining_seconds := construction_job_duration_seconds
-	if construction_job_completes_unix_utc > 0 and server_now > 0:
-		remaining_seconds = maxf(
-			float(construction_job_completes_unix_utc - server_now),
-			0.0
-		)
-	return {
-		"name": construction_job_name,
-		"data": construction_job_data.duplicate(true),
-		"target": _serialize_vector2(construction_job_target),
-		"started_unix_utc": construction_job_started_unix_utc,
-		"completes_unix_utc": construction_job_completes_unix_utc,
-		"remaining_seconds": remaining_seconds,
-	}
+	return SaveManagerClass.serialize_construction_job(
+		construction_job_active,
+		construction_job_data,
+		construction_job_name,
+		construction_job_target,
+		construction_job_started_unix_utc,
+		construction_job_completes_unix_utc,
+		construction_job_duration_seconds,
+		_current_server_unix_utc()
+	)
 
 
 func _full_farm_perimeter_points() -> PackedVector2Array:
@@ -1748,8 +1834,7 @@ func _full_farm_perimeter_points() -> PackedVector2Array:
 
 
 func _full_farm_perimeter_cost() -> int:
-	var length_meters := _fence_length_meters_for_points(_full_farm_perimeter_points())
-	return maxi(ceili(length_meters / 100.0 * BARBED_FENCE_COST_PER_100), 1)
+	return ConstructionService.full_perimeter_cost(farm_visual_boundary)
 
 
 func _build_full_farm_perimeter() -> void:
@@ -1936,65 +2021,31 @@ func _current_fence_cost() -> int:
 
 
 func _current_fence_length_meters() -> float:
-	return _fence_length_meters_for_points(build_points)
+	return ConstructionService.fence_length_meters(build_points)
 
 
 func _fence_length_meters_for_points(points: PackedVector2Array) -> float:
-	var length_units := 0.0
-	for point_index in range(1, points.size()):
-		length_units += points[point_index - 1].distance_to(points[point_index])
-	return length_units * METERS_PER_MAP_UNIT
+	return ConstructionService.fence_length_meters(points)
 
 
 func _current_fence_rate() -> int:
-	var rate := BARBED_FENCE_COST_PER_100
-	if build_mode == BuildMode.SMOOTH_FENCE:
-		rate = SMOOTH_FENCE_COST_PER_100
-	elif build_mode == BuildMode.ELECTRIC_FENCE:
-		rate = ELECTRIC_FENCE_COST_PER_100
-	return rate
+	return ConstructionService.fence_rate(int(build_mode))
 
 
 func _current_single_structure_cost() -> int:
-	match build_mode:
-		BuildMode.GATE:
-			return FREE_GATE_COST
-		BuildMode.CORRAL:
-			return CORRAL_COST
-		BuildMode.SCALE:
-			return SCALE_COST
-	return 0
+	return ConstructionService.single_structure_cost(int(build_mode))
 
 
 func _construction_labor_rate(selected_mode: BuildMode) -> float:
-	match selected_mode:
-		BuildMode.GATE:
-			return GATE_LABOR_RATE
-		BuildMode.CORRAL:
-			return CORRAL_LABOR_RATE
-		BuildMode.SCALE:
-			return SCALE_LABOR_RATE
-	return FENCE_LABOR_RATE
+	return ConstructionService.construction_labor_rate(int(selected_mode))
 
 
 func _construction_labor_rate_for_type(type_name: String) -> float:
-	match type_name:
-		"Porteira":
-			return GATE_LABOR_RATE
-		"Curral simples":
-			return CORRAL_LABOR_RATE
-		"Balança pecuária":
-			return SCALE_LABOR_RATE
-	return FENCE_LABOR_RATE
+	return ConstructionService.construction_labor_rate_for_type(type_name)
 
 
 func _cost_breakdown(total_cost: int, labor_rate: float) -> Dictionary:
-	var labor_cost := clampi(roundi(total_cost * labor_rate), 0, total_cost)
-	return {
-		"material": total_cost - labor_cost,
-		"labor": labor_cost,
-		"total": total_cost,
-	}
+	return ConstructionService.cost_breakdown(total_cost, labor_rate)
 
 
 func _record_split_expense(description: String, total_cost: int, labor_rate: float) -> Dictionary:
@@ -2009,7 +2060,7 @@ func _record_split_expense(description: String, total_cost: int, labor_rate: flo
 
 
 func _sanitary_labor_rate(action: String) -> float:
-	return COWBOY_SERVICE_RATE if action == "vitamin" else VETERINARY_LABOR_RATE
+	return ConstructionService.sanitary_labor_rate(action)
 
 
 func _sanitary_service_total(action: String) -> int:
@@ -2046,12 +2097,7 @@ func _format_sanitary_cost(label: String, total_cost: int, action: String) -> St
 
 
 func _format_cost_breakdown(total_cost: int, labor_rate: float) -> String:
-	var breakdown := _cost_breakdown(total_cost, labor_rate)
-	return "Material R$ %s  •  Mão de obra R$ %s  •  Total R$ %s" % [
-		_format_money(int(breakdown["material"])),
-		_format_money(int(breakdown["labor"])),
-		_format_money(int(breakdown["total"])),
-	]
+	return ConstructionService.format_cost_breakdown(total_cost, labor_rate, _format_money)
 
 
 func _update_fence_estimate_status(instruction: String) -> void:
@@ -2085,11 +2131,7 @@ func _update_construction_actions_visibility() -> void:
 
 
 func _fence_color(selected_mode: BuildMode) -> Color:
-	if selected_mode == BuildMode.SMOOTH_FENCE:
-		return Color(0.76, 0.78, 0.73, 1)
-	if selected_mode == BuildMode.ELECTRIC_FENCE:
-		return Color(0.98, 0.76, 0.12, 1)
-	return Color(0.34, 0.2, 0.09, 1)
+	return ConstructionService.fence_color(int(selected_mode))
 
 
 func _create_fence_visual(points: PackedVector2Array, selected_mode: BuildMode) -> Node2D:
@@ -2172,79 +2214,41 @@ func _create_fence_post(
 
 
 func _fence_wire_width(selected_mode: BuildMode) -> float:
-	if selected_mode == BuildMode.SMOOTH_FENCE:
-		return 2.8
-	if selected_mode == BuildMode.ELECTRIC_FENCE:
-		return 1.4
-	return 2.2
+	return ConstructionService.fence_wire_width(int(selected_mode))
 
 
 func _fence_post_radius(selected_mode: BuildMode) -> float:
-	if selected_mode == BuildMode.ELECTRIC_FENCE:
-		return 2.0
-	if selected_mode == BuildMode.SMOOTH_FENCE:
-		return 2.7
-	return 2.3
+	return ConstructionService.fence_post_radius(int(selected_mode))
 
 
 func _fence_post_color(selected_mode: BuildMode) -> Color:
-	if selected_mode == BuildMode.SMOOTH_FENCE:
-		return Color(0.62, 0.49, 0.3, 1)
-	if selected_mode == BuildMode.ELECTRIC_FENCE:
-		return Color(0.92, 0.9, 0.72, 1)
-	return Color(0.43, 0.26, 0.11, 1)
+	return ConstructionService.fence_post_color(int(selected_mode))
 
 
 func _build_mode_name(selected_mode: BuildMode) -> String:
-	match selected_mode:
-		BuildMode.BARBED_FENCE:
-			return "Cerca de arame farpado"
-		BuildMode.SMOOTH_FENCE:
-			return "Cerca de arame liso"
-		BuildMode.ELECTRIC_FENCE:
-			return "Cerca elétrica"
-		BuildMode.GATE:
-			return "Porteira"
-		BuildMode.CORRAL:
-			return "Curral simples"
-		BuildMode.SCALE:
-			return "Balança pecuária"
-	return "Estrutura"
+	return ConstructionService.build_mode_name(int(selected_mode))
 
 
 func _validate_free_gate_position(world_position: Vector2) -> bool:
-	var nearest := _nearest_fence_position(world_position)
-	if nearest.is_empty() or float(nearest["distance"]) > 70.0:
-		store_status.text = "A porteira precisa ser instalada sobre uma cerca."
-		return false
-	if cash_balance < FREE_GATE_COST:
-		store_status.text = "Caixa insuficiente para instalar a porteira."
+	var result := ConstructionService.validate_gate_position(world_position, built_structures, cash_balance)
+	if not result.get("valid", false):
+		store_status.text = str(result.get("message", ""))
 		return false
 	return true
 
 
 func _validate_free_corral_position(world_position: Vector2) -> bool:
-	var rect := Rect2(world_position - CORRAL_SIZE / 2.0, CORRAL_SIZE)
-	if not Rect2(Vector2.ZERO, Vector2(FARM_WIDTH, FARM_HEIGHT)).encloses(rect):
-		store_status.text = "O curral precisa ficar inteiramente dentro da propriedade."
-		return false
-	if cash_balance < CORRAL_COST:
-		store_status.text = "Caixa insuficiente para construir o curral."
+	var result := ConstructionService.validate_corral_position(world_position, cash_balance)
+	if not result.get("valid", false):
+		store_status.text = str(result.get("message", ""))
 		return false
 	return true
 
 
 func _validate_free_scale_position(world_position: Vector2) -> bool:
-	var inside_corral := false
-	for corral_rect in corral_rects:
-		if corral_rect.has_point(world_position):
-			inside_corral = true
-			break
-	if not inside_corral:
-		store_status.text = "A balança precisa ser instalada dentro de um curral."
-		return false
-	if cash_balance < SCALE_COST:
-		store_status.text = "Caixa insuficiente para instalar a balança."
+	var result := ConstructionService.validate_scale_position(world_position, corral_rects, cash_balance)
+	if not result.get("valid", false):
+		store_status.text = str(result.get("message", ""))
 		return false
 	return true
 
@@ -2389,63 +2393,23 @@ func _create_rectangle_structure(rect: Rect2, color: Color, width: float) -> voi
 
 
 func _rectangle_points(rect: Rect2) -> PackedVector2Array:
-	return PackedVector2Array([
-		rect.position,
-		Vector2(rect.end.x, rect.position.y),
-		rect.end,
-		Vector2(rect.position.x, rect.end.y),
-		rect.position,
-	])
+	return ConstructionService.rectangle_points(rect)
 
 
 func _nearest_fence_position(world_position: Vector2) -> Dictionary:
-	var nearest := {}
-	var shortest_distance := INF
-	for structure in built_structures:
-		if not str(structure.get("type", "")).begins_with("Cerca"):
-			continue
-		var points: PackedVector2Array = structure.get("points", PackedVector2Array())
-		for point_index in range(1, points.size()):
-			var segment_start := points[point_index - 1]
-			var segment_end := points[point_index]
-			var closest := _closest_point_on_segment(
-				world_position,
-				segment_start,
-				segment_end
-			)
-			var distance := world_position.distance_to(closest)
-			if distance < shortest_distance:
-				shortest_distance = distance
-				nearest = {
-					"distance": distance,
-					"position": closest,
-					"rotation": segment_start.angle_to_point(segment_end),
-				}
-	return nearest
+	return ConstructionService.nearest_fence_position(world_position, built_structures)
 
 
 func _closest_point_on_segment(point: Vector2, start: Vector2, end: Vector2) -> Vector2:
-	var segment := end - start
-	var length_squared := segment.length_squared()
-	if length_squared <= 0.0:
-		return start
-	var factor := clampf((point - start).dot(segment) / length_squared, 0.0, 1.0)
-	return start + segment * factor
+	return ConstructionService.closest_point_on_segment(point, start, end)
 
 
 func _is_closed_fence(points: PackedVector2Array) -> bool:
-	return points.size() >= 4 and points[0].distance_to(points[-1]) <= 1.0
+	return ConstructionService.is_closed_fence(points)
 
 
 func _normalize_fence_closure(points: PackedVector2Array) -> PackedVector2Array:
-	var normalized := points.duplicate()
-	if (
-		normalized.size() >= 3
-		and not _is_closed_fence(normalized)
-		and normalized[0].distance_to(normalized[-1]) <= FENCE_CLOSURE_TOLERANCE
-	):
-		normalized.append(normalized[0])
-	return normalized
+	return ConstructionService.normalize_fence_closure(points)
 
 
 func _register_free_paddock(points: PackedVector2Array) -> void:
@@ -2789,21 +2753,11 @@ func _market_rules_text(event_message: String = "") -> String:
 
 
 func _polygon_center(points: PackedVector2Array) -> Vector2:
-	var center := Vector2.ZERO
-	var point_count := points.size() - 1 if _is_closed_fence(points) else points.size()
-	for point_index in range(point_count):
-		center += points[point_index]
-	return center / maxf(point_count, 1)
+	return ConstructionService.polygon_center(points)
 
 
 func _polygon_area(points: PackedVector2Array) -> float:
-	var area := 0.0
-	for point_index in range(points.size() - 1):
-		area += (
-			points[point_index].x * points[point_index + 1].y
-			- points[point_index + 1].x * points[point_index].y
-		)
-	return absf(area) * 0.5
+	return ConstructionService.polygon_area(points)
 
 
 func _update_structures_ui() -> void:
@@ -2883,42 +2837,11 @@ func _has_built_fence() -> bool:
 
 
 func _serialize_built_structures() -> Array:
-	var serialized: Array = []
-	for structure in built_structures:
-		var type_name := str(structure.get("type", ""))
-		var total_cost := int(structure.get("cost", 0))
-		var fallback_breakdown := _cost_breakdown(
-			total_cost,
-			_construction_labor_rate_for_type(type_name)
-		)
-		var entry := {
-			"type": type_name,
-			"cost": total_cost,
-			"material_cost": int(structure.get("material_cost", fallback_breakdown["material"])),
-			"labor_cost": int(structure.get("labor_cost", fallback_breakdown["labor"])),
-		}
-		if structure.has("points"):
-			var serialized_points: Array = []
-			for point in structure["points"]:
-				serialized_points.append([point.x, point.y])
-			entry["points"] = serialized_points
-			entry["full_perimeter"] = bool(structure.get("full_perimeter", false))
-		if structure.has("position"):
-			var structure_position: Vector2 = structure["position"]
-			entry["position"] = [structure_position.x, structure_position.y]
-			entry["rotation"] = float(structure.get("rotation", 0.0))
-			entry["open"] = bool(structure.get("open", false))
-			entry["hinge_pivot"] = bool(structure.get("hinge_pivot", false))
-		if structure.has("rect"):
-			var structure_rect: Rect2 = structure["rect"]
-			entry["rect"] = [
-				structure_rect.position.x,
-				structure_rect.position.y,
-				structure_rect.size.x,
-				structure_rect.size.y,
-			]
-		serialized.append(entry)
-	return serialized
+	return SaveManagerClass.serialize_built_structures(
+		built_structures,
+		_cost_breakdown,
+		_construction_labor_rate_for_type
+	)
 
 
 func _restore_free_structures(serialized_structures: Array) -> void:
@@ -3617,23 +3540,13 @@ func _start_artificial_insemination() -> void:
 
 
 func _can_start_breeding() -> bool:
-	if not herd_created:
-		reproduction_status.text = "Compre animais no Mercado antes de iniciar a reprodução."
-		return false
-	if pregnant_females > 0:
-		reproduction_status.text = "Já existe uma gestação em andamento."
-		return false
-	if calf_age_days >= 0:
-		reproduction_status.text = "Aguarde a desmama do lote atual de bezerros."
-		return false
-	if int(herd_categories["cows"]) < 1:
-		reproduction_status.text = "Não há vacas aptas para reprodução."
-		return false
-	if not _is_breeding_season():
-		reproduction_status.text = "A estação de monta ocorre de novembro a abril."
-		return false
-	if body_condition < 2.5 or health < 60.0:
-		reproduction_status.text = "Condição corporal ou saúde insuficiente para a reprodução."
+	var result := ReproductionService.can_start_breeding(
+		herd_created, pregnant_females, calf_age_days,
+		int(herd_categories["cows"]), _is_breeding_season(),
+		body_condition, health
+	)
+	if not result.get("allowed", false):
+		reproduction_status.text = str(result.get("message", ""))
 		return false
 	return true
 
@@ -3740,41 +3653,13 @@ func _advance_reproduction_day() -> String:
 
 
 func _calculate_offspring_genetics() -> Dictionary:
-	var sire_genetics := {
-		"fertility": 84.0,
-		"calving_ease": 88.0,
-		"heat_adaptation": 84.0,
-		"parasite_resistance": 78.0,
-		"weight_gain": 76.0,
-		"maternal_ability": 70.0,
-	}
-	if breeding_method == "Inseminação artificial":
-		sire_genetics = {
-			"fertility": 88.0,
-			"calving_ease": 90.0,
-			"heat_adaptation": 76.0,
-			"parasite_resistance": 70.0,
-			"weight_gain": 88.0,
-			"maternal_ability": 78.0,
-		}
-
-	var inherited := {}
-	var natural_variation := float((current_year % 5) - 2)
-	for genetic_key in herd_genetics:
-		inherited[genetic_key] = clampf(
-			(
-				float(herd_genetics[genetic_key])
-				+ float(sire_genetics[genetic_key])
-			) / 2.0
-			+ natural_variation,
-			0.0,
-			100.0
-		)
-	return inherited
+	return ReproductionService.calculate_offspring_genetics(
+		herd_genetics, breeding_method, current_year
+	)
 
 
 func _is_breeding_season() -> bool:
-	return _current_month() in [11, 12, 1, 2, 3, 4]
+	return ReproductionService.is_breeding_season(_current_month())
 
 
 func _select_offspring_genetics() -> void:
@@ -3904,102 +3789,23 @@ func _rebuild_herd_categories() -> void:
 
 
 func _category_for_animal(animal: Dictionary) -> String:
-	var age_days := int(animal.get("age_days", 0))
-	var sex := str(animal.get("sex", "female"))
-	if sex == "female":
-		if age_days < WEANING_AGE_DAYS:
-			return "female_calves"
-		if bool(animal.get("has_calved", false)) or age_days >= 900:
-			return "cows"
-		return "heifers"
-	if bool(animal.get("intact_male", false)):
-		return "bulls"
-	if age_days < WEANING_AGE_DAYS:
-		return "male_calves"
-	if age_days < 730:
-		return "steers"
-	return "oxen"
+	return AnimalHealthService.category_for_animal(animal, WEANING_AGE_DAYS)
 
 
 func _update_reproduction_ui() -> void:
-	if not herd_created:
-		reproduction_status.text = "Compre animais no Mercado para iniciar o manejo reprodutivo."
-	else:
-		var cycle_text := "sem ciclo ativo"
-		if pregnant_females > 0:
-			cycle_text = "%d gestantes | parto em %d dias" % [
-				pregnant_females,
-				gestation_days_remaining,
-			]
-		elif calf_age_days >= 0:
-			cycle_text = "bezerros com %d/%d dias para desmama" % [
-				calf_age_days,
-				WEANING_AGE_DAYS,
-			]
-
-		var genetics_to_show: Dictionary = (
-			offspring_genetics if not offspring_genetics.is_empty() else herd_genetics
-		)
-		reproduction_status.text = (
-			"Vacas: %d | Novilhas: %d | Touro: %d\n"
-			+ "Bezerros: %d F / %d M | Garrotes: %d | Bois: %d\n"
-			+ "%s\n"
-			+ "Fertilidade %d | Parto %d | Materna %d\n"
-			+ "Calor %d | Parasitas %d | Ganho %d"
-		) % [
-			int(herd_categories["cows"]),
-			int(herd_categories["heifers"]),
-			int(herd_categories["bulls"]),
-			int(herd_categories["female_calves"]),
-			int(herd_categories["male_calves"]),
-			int(herd_categories["steers"]),
-			int(herd_categories["oxen"]),
-			cycle_text,
-			roundi(float(genetics_to_show["fertility"])),
-			roundi(float(genetics_to_show["calving_ease"])),
-			roundi(float(genetics_to_show["maternal_ability"])),
-			roundi(float(genetics_to_show["heat_adaptation"])),
-			roundi(float(genetics_to_show["parasite_resistance"])),
-			roundi(float(genetics_to_show["weight_gain"])),
-		]
-
-	var can_breed_now := (
-		herd_created
-		and pregnant_females == 0
-		and calf_age_days < 0
-		and int(herd_categories["cows"]) > 0
-		and _is_breeding_season()
-		and body_condition >= 2.5
-		and health >= 60.0
-	)
-	natural_breeding_button.disabled = (
-		not can_breed_now
-		or int(herd_categories["bulls"]) < 1
-	)
-	insemination_button.disabled = (
-		not can_breed_now
-		or cash_balance < ARTIFICIAL_INSEMINATION_COST
-	)
-	select_genetics_button.disabled = offspring_genetics.is_empty() or calf_age_days >= 0
+	_reproduction_ui.update(_build_base_state())
 
 
 func _daily_parasite_increase(parasite_resistance: float) -> float:
-	var capacity := maxi(int(pasture_capacity[herd_pasture]), 1)
-	var grazing_pressure := float(herd_size) / float(capacity)
-	var environmental_exposure: float = (
-		0.45
-		+ minf(rainfall_mm / 30.0, 1.5)
-		+ float(soil_moisture[herd_pasture]) / 300.0
-		+ pasture_degradation[herd_pasture] / 100.0
-		+ maxf(grazing_pressure - 0.8, 0.0) * 0.7
+	return AnimalHealthService.daily_parasite_increase(
+		parasite_resistance,
+		rainfall_mm,
+		float(soil_moisture[herd_pasture]),
+		float(pasture_degradation[herd_pasture]),
+		herd_size,
+		int(pasture_capacity[herd_pasture]),
+		parasite_treatment_days_remaining
 	)
-	var genetic_protection: float = (
-		clampf(parasite_resistance / 100.0, 0.0, 1.0) * 0.7
-	)
-	var treatment_factor: float = (
-		0.25 if parasite_treatment_days_remaining > 0 else 1.0
-	)
-	return maxf(environmental_exposure * (1.0 - genetic_protection) * treatment_factor, 0.0)
 
 
 func _advance_sanitary_day() -> String:
@@ -4075,21 +3881,12 @@ func _advance_sanitary_day() -> String:
 
 
 func _sanitary_service_is_available(action: String) -> bool:
-	match action:
-		"parasite":
-			return parasite_treatment_days_remaining <= 0
-		"clinical":
-			return (
-				not _clinical_treatment_candidates().is_empty()
-				and clinical_medication_days_remaining <= 0
-			)
-		"brucellosis":
-			return not _eligible_brucellosis_calves().is_empty()
-		"clostridiosis":
-			return not _eligible_clostridiosis_animals().is_empty()
-		"vitamin":
-			return vitamin_supplement_days_remaining <= 0
-	return false
+	return AnimalHealthService.sanitary_service_is_available(
+		action, herd_animals,
+		parasite_treatment_days_remaining,
+		clinical_medication_days_remaining,
+		vitamin_supplement_days_remaining
+	)
 
 
 func _request_sanitary_service(action: String, title: String) -> void:
@@ -4205,27 +4002,7 @@ func _return_cowboy_visual() -> void:
 
 
 func _update_service_order_ui() -> void:
-	if not is_instance_valid(service_order_status):
-		return
-	if not active_service_order.is_empty():
-		service_order_status.text = (
-			"%s\n%s • conclusão no próximo dia\n"
-			+ "Insumos R$ %s + equipe R$ %s • total R$ %s"
-		) % [
-			str(active_service_order.get("phase", "Executando manejo")),
-			str(active_service_order.get("executor", "Equipe rural")),
-			_format_money(int(active_service_order.get("input_cost", 0))),
-			_format_money(int(active_service_order.get("labor_cost", 0))),
-			_format_money(int(active_service_order.get("total_cost", 0))),
-		]
-		return
-	if not last_cowboy_activity.is_empty():
-		service_order_status.text = last_cowboy_activity
-		return
-	service_order_status.text = (
-		"Nenhum manejo em andamento.\n"
-		+ "O vaqueiro abastece cochos e suplementos automaticamente."
-	)
+	_service_order_ui.update(_build_base_state())
 
 
 func _resume_service_order_visuals() -> void:
@@ -4262,28 +4039,11 @@ func _apply_parasite_treatment() -> void:
 
 
 func _eligible_brucellosis_calves() -> Array[Dictionary]:
-	var eligible: Array[Dictionary] = []
-	for animal in herd_animals:
-		var age_days := int(animal.get("age_days", 0))
-		if (
-			str(animal.get("sex", "")) == "female"
-			and age_days >= 90
-			and age_days <= 240
-			and not bool(animal.get("brucellosis_vaccinated", false))
-		):
-			eligible.append(animal)
-	return eligible
+	return AnimalHealthService.eligible_brucellosis_calves(herd_animals)
 
 
 func _clinical_treatment_candidates() -> Array[Dictionary]:
-	var candidates: Array[Dictionary] = []
-	for animal in herd_animals:
-		if (
-			float(animal.get("health", health)) < 80.0
-			or float(animal.get("parasite_load", 0.0)) >= 40.0
-		):
-			candidates.append(animal)
-	return candidates
+	return AnimalHealthService.clinical_treatment_candidates(herd_animals)
 
 
 func _apply_clinical_medication() -> void:
@@ -4327,14 +4087,7 @@ func _vaccinate_brucellosis() -> void:
 
 
 func _eligible_clostridiosis_animals() -> Array[Dictionary]:
-	var eligible: Array[Dictionary] = []
-	for animal in herd_animals:
-		if (
-			int(animal.get("age_days", 0)) >= 60
-			and int(animal.get("clostridiosis_vaccine_days_remaining", 0)) <= 0
-		):
-			eligible.append(animal)
-	return eligible
+	return AnimalHealthService.eligible_clostridiosis_animals(herd_animals)
 
 
 func _vaccinate_clostridiosis() -> void:
@@ -4376,93 +4129,7 @@ func _start_vitamin_supplement() -> void:
 
 
 func _update_sanitary_ui() -> void:
-	if not herd_created or herd_animals.is_empty():
-		sanitary_status.text = "Compre animais no Mercado para iniciar o manejo sanitário."
-		parasite_treatment_button.disabled = true
-		clinical_medication_button.disabled = true
-		brucellosis_vaccine_button.disabled = true
-		clostridiosis_vaccine_button.disabled = true
-		vitamin_supplement_button.disabled = true
-		return
-
-	var eligible_count := _eligible_brucellosis_calves().size()
-	var clinical_count := _clinical_treatment_candidates().size()
-	var clostridiosis_count := _eligible_clostridiosis_animals().size()
-	var vaccinated_count := 0
-	var clostridiosis_protected_count := 0
-	for animal in herd_animals:
-		if bool(animal.get("brucellosis_vaccinated", false)):
-			vaccinated_count += 1
-		if int(animal.get("clostridiosis_vaccine_days_remaining", 0)) > 0:
-			clostridiosis_protected_count += 1
-	var protection_text := (
-		"%d dias" % parasite_treatment_days_remaining
-		if parasite_treatment_days_remaining > 0
-		else "sem proteção ativa"
-	)
-	sanitary_status.text = (
-		"Pressão parasitária: %d%% | Proteção: %s\n"
-		+ "Brucelose: %d vacinadas | %d elegíveis\n"
-		+ "Clostridioses: %d protegidos | %d elegíveis\n"
-		+ "Suporte vitamínico: %s\n"
-		+ "%s"
-	) % [
-		roundi(parasite_pressure),
-		protection_text,
-		vaccinated_count,
-		eligible_count,
-		clostridiosis_protected_count,
-		clostridiosis_count,
-		(
-			"%d dias" % vitamin_supplement_days_remaining
-			if vitamin_supplement_days_remaining > 0
-			else "inativo"
-		),
-		sanitary_last_event,
-	]
-	var treatment_cost := herd_size * PARASITE_TREATMENT_COST_PER_ANIMAL
-	var vaccination_cost := eligible_count * BRUCELLOSIS_VACCINE_COST_PER_CALF
-	var medication_cost := clinical_count * CLINICAL_MEDICATION_COST_PER_ANIMAL
-	var clostridiosis_cost := clostridiosis_count * CLOSTRIDIOSIS_VACCINE_COST_PER_ANIMAL
-	var vitamin_cost := herd_size * VITAMIN_SUPPLEMENT_COST_PER_ANIMAL
-	parasite_treatment_button.text = _format_sanitary_cost(
-		"Controle parasitário", treatment_cost, "parasite"
-	)
-	brucellosis_vaccine_button.text = _format_sanitary_cost("Vacinar %d bezerras" % eligible_count,
-		vaccination_cost, "brucellosis")
-	clinical_medication_button.text = _format_sanitary_cost("Tratar %d bovinos" % clinical_count,
-		medication_cost, "clinical")
-	clostridiosis_vaccine_button.text = _format_sanitary_cost("Vacinar %d bovinos" % clostridiosis_count,
-		clostridiosis_cost, "clostridiosis")
-	vitamin_supplement_button.text = _format_sanitary_cost(
-		"Suporte por 30 dias", vitamin_cost, "vitamin"
-	)
-	parasite_treatment_button.disabled = (
-		parasite_treatment_days_remaining > 0
-		or cash_balance < treatment_cost
-		or not active_service_order.is_empty()
-	)
-	brucellosis_vaccine_button.disabled = (
-		eligible_count <= 0
-		or cash_balance < vaccination_cost
-		or not active_service_order.is_empty()
-	)
-	clinical_medication_button.disabled = (
-		clinical_count <= 0
-		or clinical_medication_days_remaining > 0
-		or cash_balance < medication_cost
-		or not active_service_order.is_empty()
-	)
-	clostridiosis_vaccine_button.disabled = (
-		clostridiosis_count <= 0
-		or cash_balance < clostridiosis_cost
-		or not active_service_order.is_empty()
-	)
-	vitamin_supplement_button.disabled = (
-		vitamin_supplement_days_remaining > 0
-		or cash_balance < vitamin_cost
-		or not active_service_order.is_empty()
-	)
+	_sanitary_ui.update(_build_base_state())
 
 
 func _advance_day(silent: bool = false) -> void:
@@ -4676,32 +4343,13 @@ func _update_pasture_condition() -> float:
 
 
 func _update_herd_status(message: String) -> void:
-	herd_status.text = "Dia %d | %s | %d bovinos | %s\nPeso: %.1f kg | Condição: %.2f (%s)\nFome: %d%% | Sede: %d%% | Saúde: %d%%\nEstresse térmico: %d%%\n%s" % [
-		current_day,
-		_formatted_date(),
-		herd_size,
-		_current_herd_area_name(),
-		average_weight_kg,
-		body_condition,
-		_body_condition_label(),
-		roundi(hunger),
-		roundi(thirst),
-		roundi(health),
-		roundi(heat_stress),
-		message
-	]
+	var state := _build_base_state()
+	state["message"] = message
+	_herd_ui.update_status(state)
 
 
 func _body_condition_label() -> String:
-	if body_condition < 2.0:
-		return "muito baixa"
-	if body_condition < 3.0:
-		return "baixa"
-	if body_condition < 4.0:
-		return "adequada"
-	if body_condition < 4.5:
-		return "alta"
-	return "excessiva"
+	return AnimalHealthService.body_condition_label(body_condition)
 
 
 func _current_month() -> int:
@@ -4721,75 +4369,39 @@ func _formatted_date() -> String:
 
 
 func _is_leap_year(year: int) -> bool:
-	return year % 400 == 0 or (year % 4 == 0 and year % 100 != 0)
+	return CalendarService.is_leap_year(year)
 
 
 func _days_in_year(year: int) -> int:
-	return 366 if _is_leap_year(year) else 365
+	return CalendarService.days_in_year(year)
 
 
 func _month_length(year: int, month: int) -> int:
-	if month == 2 and _is_leap_year(year):
-		return 29
-	return int(MONTH_LENGTHS[clampi(month, 1, 12) - 1])
+	return CalendarService.month_length(year, month)
 
 
 func _day_of_year_from_date(year: int, month: int, day: int) -> int:
-	var result := clampi(day, 1, _month_length(year, month))
-	for previous_month in range(1, clampi(month, 1, 12)):
-		result += _month_length(year, previous_month)
-	return result
+	return CalendarService.day_of_year_from_date(year, month, day)
 
 
 func _calendar_month_and_day() -> Vector2i:
-	var remaining_days := clampi(day_of_year, 1, _days_in_year(current_year))
-	for month_index in range(MONTH_LENGTHS.size()):
-		var month_length := _month_length(current_year, month_index + 1)
-		if remaining_days <= month_length:
-			return Vector2i(month_index + 1, remaining_days)
-		remaining_days -= month_length
-	return Vector2i(12, 31)
+	return CalendarService.calendar_month_and_day(day_of_year, current_year)
 
 
 func _migrate_legacy_day_of_year(legacy_day_of_year: int) -> int:
-	var old_day := clampi(legacy_day_of_year, 1, 360)
-	var old_month_index := (old_day - 1) / 30
-	var old_month_day := ((old_day - 1) % 30) + 1
-	old_month_day = mini(old_month_day, int(MONTH_LENGTHS[old_month_index]))
-	var migrated_day := old_month_day
-	for month_index in range(old_month_index):
-		migrated_day += int(MONTH_LENGTHS[month_index])
-	return migrated_day
+	return CalendarService.migrate_legacy_day_of_year(legacy_day_of_year)
 
 
 func _climate_phase() -> String:
-	var month := _current_month()
-
-	if month in [11, 12, 1, 2, 3, 4]:
-		return "Período chuvoso"
-	if month in [5, 10]:
-		return "Transição"
-	return "Estiagem"
+	return ClimateService.climate_phase(_current_month())
 
 
 func _climate_phase_short() -> String:
-	match _climate_phase():
-		"Período chuvoso":
-			return "Chuvoso"
-		"Transição":
-			return "Transição"
-		_:
-			return "Estiagem"
+	return ClimateService.climate_phase_short(_current_month())
 
 
 func _climate_phase_color() -> Color:
-	match _climate_phase():
-		"Período chuvoso":
-			return Color("63bfe8")
-		"Transição":
-			return Color("becf78")
-		_:
-			return Color("f2aa40")
+	return ClimateService.climate_phase_color(_current_month())
 
 
 func _climate_phase_icon() -> Texture2D:
@@ -4803,49 +4415,24 @@ func _climate_phase_icon() -> Texture2D:
 
 
 func _update_daily_weather() -> void:
-	var rain_chance := 4
-	var base_temperature := 37.0
-	match _climate_phase():
-		"Período chuvoso":
-			rain_chance = 40
-			base_temperature = 32.0
-		"Transição":
-			rain_chance = 15
-			base_temperature = 35.0
-
-	var rain_score := posmod(day_of_year * 13 + current_year * 7, 100)
-	if rain_score < rain_chance:
-		var rain_range := 470 if _climate_phase() == "Período chuvoso" else 230
-		var minimum_rain := 8.0 if _climate_phase() == "Período chuvoso" else 2.0
-		rainfall_mm = minimum_rain + (
-			float(posmod(day_of_year * 19 + current_year * 11, rain_range)) / 10.0
-		)
+	var result := ClimateService.generate_daily_weather(
+		day_of_year, current_year, _current_month()
+	)
+	rainfall_mm = result["rainfall_mm"]
+	max_temperature_c = result["max_temperature_c"]
+	weather_condition = result["weather_condition"]
+	if rainfall_mm > 0.0:
 		consecutive_dry_days = 0
 	else:
-		rainfall_mm = 0.0
 		consecutive_dry_days += 1
-
-	var temperature_variation := (
-		float(posmod(day_of_year * 7 + current_year * 13, 60)) / 10.0
-	)
-	max_temperature_c = base_temperature + temperature_variation
-	if rainfall_mm >= 2.0:
-		max_temperature_c -= 2.5
-	weather_condition = (
-		"Chuva forte"
-		if rainfall_mm >= 30.0
-		else ("Chuva" if rainfall_mm >= 2.0 else "Seco")
-	)
-	heat_stress = _calculate_heat_stress(
+	heat_stress = ClimateService.calculate_heat_stress(
 		max_temperature_c,
 		float(herd_genetics["heat_adaptation"])
 	)
 
 
 func _calculate_heat_stress(temperature_c: float, heat_adaptation: float) -> float:
-	var thermal_load := maxf(temperature_c - 30.0, 0.0) * 8.0
-	var genetic_protection := clampf(heat_adaptation / 100.0, 0.0, 1.0) * 0.65
-	return clampf(thermal_load * (1.0 - genetic_protection), 0.0, 100.0)
+	return ClimateService.calculate_heat_stress(temperature_c, heat_adaptation)
 
 
 func _apply_daily_heat_stress() -> String:
@@ -4862,159 +4449,100 @@ func _apply_daily_heat_stress() -> String:
 
 
 func _daily_pasture_growth() -> float:
-	var base_growth := 0.0
-	match _climate_phase():
-		"Período chuvoso":
-			base_growth = 0.8
-		"Transição":
-			base_growth = 0.15
-		_:
-			base_growth = -0.55
-	var rain_bonus := minf(rainfall_mm * 0.08, 3.5)
-	var prolonged_drought_penalty := minf(maxi(consecutive_dry_days - 10, 0) * 0.04, 1.5)
-	var heat_penalty := maxf(max_temperature_c - 36.0, 0.0) * 0.15
-	return clampf(
-		base_growth + rain_bonus - prolonged_drought_penalty - heat_penalty,
-		-2.5,
-		4.0
+	return ClimateService.daily_pasture_growth(
+		_current_month(), rainfall_mm, consecutive_dry_days, max_temperature_c
 	)
 
 
 func _soil_profile_value(pasture_number: int, lowland_value: float, highland_value: float) -> float:
-	return lowland_value if pasture_number == 1 else highland_value
+	return SoilService.profile_value(pasture_number, lowland_value, highland_value)
 
 
 func _advance_soil_day() -> void:
 	for pasture_number in [1, 2]:
-		var infiltration: float = _soil_profile_value(pasture_number, 0.78, 0.42)
-		var drainage: float = _soil_profile_value(pasture_number, 0.3, 0.85)
-		var slope_erosion: float = _soil_profile_value(pasture_number, 0.7, 1.45)
-		var compaction_factor: float = clampf(
-			1.0 - float(soil_compaction[pasture_number]) / 150.0,
-			0.35,
-			1.0
-		)
-		var effective_infiltration: float = infiltration * compaction_factor
-		var runoff: float = rainfall_mm * (1.0 - effective_infiltration)
-		soil_daily_runoff[pasture_number] = runoff
-
-		var evaporation: float = (
-			0.45
-			+ maxf(max_temperature_c - 30.0, 0.0) * 0.07
-			+ drainage
-		)
-		soil_moisture[pasture_number] = clampf(
-			float(soil_moisture[pasture_number])
-			+ rainfall_mm * effective_infiltration * 0.55
-			- evaporation,
-			0.0,
-			100.0
-		)
-
 		var vegetation_area: Dictionary = vegetation_manager.get_area(pasture_number)
 		var vegetation_cover: float = clampf(
 			float(vegetation_area.get("cover_pct", forage[pasture_number])) / 100.0,
 			0.0,
 			1.0
 		)
-		var erosion_gain: float = runoff * (1.0 - vegetation_cover) * 0.035 * slope_erosion
-		soil_erosion[pasture_number] = clampf(
-			float(soil_erosion[pasture_number]) + erosion_gain,
-			0.0,
-			100.0
+		var result := SoilService.advance_day(
+			pasture_number,
+			rainfall_mm,
+			max_temperature_c,
+			float(soil_compaction[pasture_number]),
+			float(soil_moisture[pasture_number]),
+			float(soil_erosion[pasture_number]),
+			float(soil_fertility[pasture_number]),
+			vegetation_cover
 		)
-		soil_fertility[pasture_number] = clampf(
-			float(soil_fertility[pasture_number]) - erosion_gain * 0.015,
-			10.0,
-			100.0
-		)
+		soil_daily_runoff[pasture_number] = result["runoff"]
+		soil_moisture[pasture_number] = result["soil_moisture"]
+		soil_erosion[pasture_number] = result["soil_erosion"]
+		soil_fertility[pasture_number] = result["soil_fertility"]
 
 
 func _soil_growth_factor(pasture_number: int) -> float:
-	var moisture_response: float = clampf(
-		float(soil_moisture[pasture_number]) / 60.0,
-		0.25,
-		1.15
+	return SoilService.growth_factor(
+		pasture_number,
+		float(soil_moisture[pasture_number]),
+		float(soil_fertility[pasture_number])
 	)
-	var fertility_response: float = 0.55 + float(soil_fertility[pasture_number]) / 200.0
-	var relief_response: float = _soil_profile_value(pasture_number, 1.05, 0.88)
-	return clampf(moisture_response * fertility_response * relief_response, 0.25, 1.2)
 
 
 func _soil_drought_factor(pasture_number: int) -> float:
-	var moisture_penalty: float = maxf(45.0 - float(soil_moisture[pasture_number]), 0.0) / 90.0
-	var relief_penalty: float = _soil_profile_value(pasture_number, 0.0, 0.15)
-	return clampf(1.0 + moisture_penalty + relief_penalty, 1.0, 1.65)
+	return SoilService.drought_factor(
+		pasture_number,
+		float(soil_moisture[pasture_number])
+	)
 
 
 func _update_pond_levels() -> void:
-	var evaporation := 0.25 + maxf(max_temperature_c - 28.0, 0.0) * 0.055
-	for pond_number in [1, 2]:
-		var direct_capture: float = rainfall_mm * _soil_profile_value(
-			pond_number,
-			0.13,
-			0.09
-		)
-		var runoff_recharge: float = float(soil_daily_runoff[pond_number]) * 0.12
-		var daily_change: float = direct_capture + runoff_recharge - evaporation
-		pond_level[pond_number] = clampf(pond_level[pond_number] + daily_change, 0.0, 100.0)
+	WaterService.update_pond_levels(
+		pond_level, rainfall_mm, max_temperature_c, soil_daily_runoff
+	)
 
 
 func _update_water_system() -> void:
 	_update_pond_levels()
-	_update_river_level()
-	herd_had_water_today = false
-
-	if pond_level[herd_pasture] > 5.0:
-		herd_had_water_today = true
-		pond_level[herd_pasture] = maxf(
-			pond_level[herd_pasture] - 0.025 * herd_size,
-			0.0
-		)
-	elif _herd_has_river_access() and river_level > 5.0:
-		herd_had_water_today = true
-		river_level = maxf(river_level - 0.02 * herd_size, 0.0)
+	river_level = WaterService.update_river_level(
+		river_level, rainfall_mm, max_temperature_c, _current_month()
+	)
+	var result := WaterService.consume_herd_water(
+		pond_level,
+		river_level,
+		herd_pasture,
+		herd_size,
+		_using_general_farm_area(),
+		division_orientation,
+		DivisionMode.NONE,
+		DivisionMode.HORIZONTAL,
+		DivisionMode.VERTICAL
+	)
+	herd_had_water_today = result["herd_had_water_today"]
+	pond_level[herd_pasture] = result["pond_level"]
+	river_level = result["river_level"]
 
 
 func _herd_has_river_access() -> bool:
-	if _using_general_farm_area():
-		return true
-	if division_orientation == DivisionMode.HORIZONTAL:
-		return true
-	if division_orientation == DivisionMode.VERTICAL:
-		return herd_pasture == 2
-	return false
+	return WaterService.herd_has_river_access(
+		_using_general_farm_area(),
+		division_orientation,
+		herd_pasture,
+		DivisionMode.NONE,
+		DivisionMode.HORIZONTAL,
+		DivisionMode.VERTICAL
+	)
 
 
 func _update_river_level() -> void:
-	var phase_loss := 0.35
-	if _climate_phase() == "Transição":
-		phase_loss = 0.8
-	elif _climate_phase() == "Estiagem":
-		phase_loss = 1.4
-	var heat_loss := maxf(max_temperature_c - 35.0, 0.0) * 0.08
-	river_level = clampf(
-		river_level + rainfall_mm * 0.22 - phase_loss - heat_loss,
-		0.0,
-		100.0
+	river_level = WaterService.update_river_level(
+		river_level, rainfall_mm, max_temperature_c, _current_month()
 	)
 
 
 func _update_climate_visuals() -> void:
-	climate_icon.texture = _climate_phase_icon()
-	climate_status.add_theme_color_override("font_color", _climate_phase_color())
-	climate_status.text = "%s | %s • %s | %.0f°C" % [
-		_formatted_server_datetime(),
-		_climate_phase_short(),
-		weather_condition,
-		max_temperature_c,
-	]
-	pond_1_label.text = "AÇUDE\nNível: %s" % _pond_level_label(pond_level[1])
-	pond_2_label.text = "AÇUDE\nNível: %s" % _pond_level_label(pond_level[2])
-	pond_1_gauge.call("set_level", pond_level[1])
-	pond_2_gauge.call("set_level", pond_level[2])
-	_update_water_level_visuals()
-	river_label.text = "RIO INTERMITENTE\n%s" % _river_level_label()
+	_climate_ui.update(_build_base_state())
 
 
 func _update_water_level_visuals() -> void:
@@ -5057,75 +4585,17 @@ func _pond_level_label(level: float) -> String:
 
 
 func _update_animal_needs(available_forage: float) -> String:
-	if available_forage > 60.0:
-		hunger = maxf(hunger - 20.0, 0.0)
-	elif available_forage > 30.0:
-		hunger = minf(hunger + 5.0, 100.0)
-	elif available_forage > 15.0:
-		hunger = minf(hunger + 15.0, 100.0)
-	else:
-		hunger = minf(hunger + 30.0, 100.0)
-
-	if herd_had_water_today:
-		thirst = maxf(thirst - 40.0, 0.0)
-	else:
-		thirst = minf(thirst + 35.0, 100.0)
-
-	var daily_health_change := 0.0
-	if hunger >= 80.0:
-		daily_health_change -= 4.0
-	elif hunger >= 50.0:
-		daily_health_change -= 2.0
-
-	if thirst >= 80.0:
-		daily_health_change -= 8.0
-	elif thirst >= 50.0:
-		daily_health_change -= 4.0
-
-	if hunger < 30.0 and thirst < 30.0:
-		daily_health_change += 1.0
-
-	health = clampf(health + daily_health_change, 0.0, 100.0)
-
-	if health <= 30.0:
-		return "Alerta grave: saúde do lote comprometida."
-	if thirst >= 50.0:
-		return "Alerta: o açude do pasto não está atendendo o lote."
-	if hunger >= 50.0:
-		return "Alerta: fome elevada por falta de forragem."
-	return ""
+	var result := AnimalHealthService.update_animal_needs(
+		available_forage, hunger, thirst, health, herd_had_water_today
+	)
+	hunger = float(result["hunger"])
+	thirst = float(result["thirst"])
+	health = float(result["health"])
+	return str(result["message"])
 
 
 func _update_water_ui() -> void:
-	var water_areas_text := "Açudes: P1 %s | P2 %s" % [
-		_pond_level_label(pond_level[1]),
-		_pond_level_label(pond_level[2]),
-	]
-	if _using_general_farm_area():
-		water_areas_text = "Açudes da área geral: %s | %s" % [
-			_pond_level_label(pond_level[1]),
-			_pond_level_label(pond_level[2]),
-		]
-	water_status.text = (
-		"Hoje: %s | Chuva %.1f mm | %d dias secos\n"
-		+ "%s\n"
-		+ "Rio intermitente: %s\n"
-		+ "Acesso atual do lote: %s"
-	) % [
-		weather_condition,
-		rainfall_mm,
-		consecutive_dry_days,
-		water_areas_text,
-		_river_level_label(),
-		(
-			"açude ou rio"
-			if herd_created and (
-				pond_level[herd_pasture] > 5.0
-				or (_herd_has_river_access() and river_level > 5.0)
-			)
-			else ("sem lote" if not herd_created else "sem água disponível")
-		),
-	]
+	_water_ui.update(_build_base_state())
 
 
 func _select_next_crop() -> void:
@@ -5199,10 +4669,9 @@ func _harvest_crop() -> void:
 
 
 func _crop_soil_yield_factor() -> float:
-	var fertility_penalty := maxf(60.0 - float(soil_fertility[1]), 0.0) * 0.006
-	var moisture_penalty := maxf(25.0 - float(soil_moisture[1]), 0.0) * 0.01
-	var erosion_penalty := maxf(float(soil_erosion[1]) - 35.0, 0.0) * 0.004
-	return clampf(1.0 - fertility_penalty - moisture_penalty - erosion_penalty, 0.45, 1.0)
+	return NutritionService.crop_soil_yield_factor(
+		float(soil_fertility[1]), float(soil_moisture[1]), float(soil_erosion[1])
+	)
 
 
 func _activate_feed_reserve() -> void:
@@ -5224,69 +4693,17 @@ func _activate_feed_reserve() -> void:
 
 
 func _consume_stored_feed(required_feed: float) -> void:
-	var remaining := required_feed
-	for product in ["fresh_forage", "silage", "hay"]:
-		var available := float(stored_feed_kg[product])
-		var consumed := minf(available, remaining)
-		stored_feed_kg[product] = available - consumed
-		remaining -= consumed
-		if remaining <= 0.0:
-			return
+	stored_feed_kg = NutritionService.consume_stored_feed(stored_feed_kg, required_feed)
 
 
 func _total_stored_feed() -> float:
-	return (
-		float(stored_feed_kg["silage"])
-		+ float(stored_feed_kg["fresh_forage"])
-		+ float(stored_feed_kg["hay"])
-	)
+	return NutritionService.total_stored_feed(stored_feed_kg)
 
 
 func _update_agriculture_ui() -> void:
-	var crop: Dictionary = FORAGE_CROPS[selected_crop_index]
-	var state_text := "sem preparo"
-	if field_state == "prepared":
-		state_text = "solo preparado"
-	elif field_state == "growing":
-		state_text = "crescendo: %d/%d dias" % [crop_days_elapsed, int(crop["days"])]
-	elif field_state == "ready":
-		state_text = "pronta para colheita"
-
-	agriculture_status.text = (
-		"Talhão: %s | Cultura: %s\n"
-		+ "Solo: umidade %d%% | fertilidade %d%%\n"
-		+ "Estoque: %.0f kg silagem | %.0f kg feno\n"
-		+ "Forragem fresca: %.0f kg | Trato: %d dias"
-	) % [
-		state_text,
-		crop["name"],
-		roundi(soil_moisture[1]),
-		roundi(soil_fertility[1]),
-		float(stored_feed_kg["silage"]),
-		float(stored_feed_kg["hay"]),
-		float(stored_feed_kg["fresh_forage"]),
-		feeding_plan_days_remaining,
-	]
-	forage_field_label.text = "TALHÃO FORRAGEIRO\n%s" % state_text.to_upper()
-	select_crop_button.text = "Cultura: %s" % crop["name"]
-	plant_crop_button.text = "Plantar — R$ %s" % _format_money(int(crop["planting_cost"]))
-	prepare_soil_button.disabled = (
-		not _has_livestock_area()
-		or field_state != "idle"
-		or cash_balance < SOIL_PREPARATION_COST
-	)
-	plant_crop_button.disabled = (
-		field_state != "prepared"
-		or cash_balance < int(crop["planting_cost"])
-	)
-	harvest_crop_button.disabled = field_state != "ready"
-	use_feed_reserve_button.disabled = (
-		not herd_created
-		or feeding_plan_days_remaining > 0
-		or _total_stored_feed() < (
-			herd_size * DAILY_RESERVE_KG_PER_ANIMAL * FEEDING_PLAN_DAYS
-		)
-	)
+	var state := _build_base_state()
+	state["total_stored_feed"] = _total_stored_feed()
+	_agriculture_ui.update(state, FORAGE_CROPS)
 
 
 func _buy_mineral() -> void:
@@ -5310,57 +4727,17 @@ func _buy_supplement() -> void:
 
 
 func _consume_daily_supplements() -> Dictionary:
-	var mineral_required := herd_size * MINERAL_DAILY_KG_PER_ANIMAL
-	var supplement_required := herd_size * SUPPLEMENT_DAILY_KG_PER_ANIMAL
-	var mineral_used := mineral_stock_kg >= mineral_required and mineral_required > 0.0
-	var supplement_used := (
-		supplement_stock_kg >= supplement_required and supplement_required > 0.0
+	var result := NutritionService.consume_daily_supplements(
+		herd_size, mineral_stock_kg, supplement_stock_kg
 	)
-
-	if mineral_used:
-		mineral_stock_kg -= mineral_required
-	if supplement_used:
-		supplement_stock_kg -= supplement_required
-
-	return {
-		"mineral": mineral_used,
-		"supplement": supplement_used,
-	}
+	mineral_stock_kg = float(result["mineral_stock_kg"])
+	supplement_stock_kg = float(result["supplement_stock_kg"])
+	return {"mineral": result["mineral"], "supplement": result["supplement"]}
 
 
 func _update_nutrition_ui() -> void:
 	_sync_legacy_from_vegetation()
-	var selected_area := selected_farm_pasture
-	var area_herd_size := (
-		herd_size if herd_created and herd_pasture == selected_area else 0
-	)
-	var stock_text := "Estoque: %.1f kg mineral | %.1f kg suplemento" % [
-		mineral_stock_kg, supplement_stock_kg
-	]
-	nutrition_status.text = "%s\n%s\n%s" % [
-		vegetation_manager.status_text(selected_area, area_herd_size, average_weight_kg),
-		stock_text,
-		vegetation_last_event,
-	]
-	var area: Dictionary = vegetation_manager.get_area(selected_area)
-	var resting := not area.is_empty() and str(area["management_mode"]) == "rest"
-	vegetation_rest_button.text = "Liberar pastejo" if resting else "Colocar em descanso"
-	var occupied := herd_created and herd_size > 0 and herd_pasture == selected_area
-	var has_intervention := (
-		not area.is_empty() and not Dictionary(area["intervention"]).is_empty()
-	)
-	vegetation_rest_button.disabled = area.is_empty() or (occupied and not resting) or has_intervention
-	vegetation_form_button.disabled = area.is_empty() or occupied or has_intervention
-	vegetation_fertilize_button.disabled = area.is_empty() or occupied or has_intervention
-	vegetation_recover_button.disabled = area.is_empty() or occupied or has_intervention
-	if not area.is_empty():
-		vegetation_form_button.text = (
-			"Reformar pastagem"
-			if int(area["degradation_stage"]) >= 2
-			else "Formar pastagem selecionada"
-		)
-	buy_mineral_button.disabled = cash_balance < MINERAL_PACKAGE_PRICE
-	buy_supplement_button.disabled = cash_balance < SUPPLEMENT_PACKAGE_PRICE
+	_nutrition_ui.update(_build_base_state(), vegetation_manager)
 
 
 func _buy_animals() -> void:
@@ -5535,28 +4912,7 @@ func _record_transaction(description: String, amount: int) -> void:
 
 
 func _update_finance_ui() -> void:
-	cash_status.text = "CAIXA\nR$ %s" % _format_money(cash_balance)
-	var history_text := "Nenhuma movimentação registrada."
-
-	if not transaction_history.is_empty():
-		var history_lines: Array[String] = []
-		for transaction in transaction_history.slice(0, 3):
-			var amount := int(transaction.get("amount", 0))
-			var signal_text := "+" if amount >= 0 else "-"
-			history_lines.append("D%d | %s R$ %s | %s" % [
-				int(transaction.get("day", 1)),
-				signal_text,
-				_format_money(absi(amount)),
-				str(transaction.get("description", "")),
-			])
-		history_text = "\n".join(history_lines)
-
-	finance_status.text = "Saldo: R$ %s\nCustos separados entre insumos, materiais e mão de obra.\n%s" % [
-		_format_money(cash_balance),
-		history_text,
-	]
-	buy_animals_button.disabled = false
-	sell_animals_button.disabled = market_sale_list.get_selected_items().is_empty()
+	_finance_ui.update(_build_base_state())
 
 
 func _update_herd_marker() -> void:
@@ -5602,28 +4958,129 @@ func _on_herd_visual_selection_changed(summary: String) -> void:
 
 
 func _format_money(value: int) -> String:
-	var text := str(value)
-	var formatted := ""
+	return EconomyService.format_money(value)
 
-	while text.length() > 3:
-		formatted = "." + text.right(3) + formatted
-		text = text.left(text.length() - 3)
 
-	return text + formatted
+func _sync_to_game_store() -> void:
+	game_store.current_day = current_day
+	game_store.day_of_year = day_of_year
+	game_store.current_year = current_year
+	game_store.herd_created = herd_created
+	game_store.herd_size = herd_size
+	game_store.herd_animals = herd_animals
+	game_store.next_animal_id = next_animal_id
+	game_store.herd_pasture = herd_pasture
+	game_store.herd_categories = herd_categories
+	game_store.herd_genetics = herd_genetics
+	game_store.offspring_genetics = offspring_genetics
+	game_store.average_weight_kg = average_weight_kg
+	game_store.body_condition = body_condition
+	game_store.hunger = hunger
+	game_store.thirst = thirst
+	game_store.health = health
+	game_store.herd_had_water_today = herd_had_water_today
+	game_store.pregnant_females = pregnant_females
+	game_store.gestation_days_remaining = gestation_days_remaining
+	game_store.calf_age_days = calf_age_days
+	game_store.breeding_method = breeding_method
+	game_store.forage = forage
+	game_store.pasture_quality = pasture_quality
+	game_store.pasture_degradation = pasture_degradation
+	game_store.pasture_capacity = pasture_capacity
+	game_store.soil_moisture = soil_moisture
+	game_store.soil_fertility = soil_fertility
+	game_store.soil_compaction = soil_compaction
+	game_store.soil_erosion = soil_erosion
+	game_store.soil_daily_runoff = soil_daily_runoff
+	game_store.pond_level = pond_level
+	game_store.river_level = river_level
+	game_store.rainfall_mm = rainfall_mm
+	game_store.max_temperature_c = max_temperature_c
+	game_store.consecutive_dry_days = consecutive_dry_days
+	game_store.weather_condition = weather_condition
+	game_store.heat_stress = heat_stress
+	game_store.mineral_stock_kg = mineral_stock_kg
+	game_store.supplement_stock_kg = supplement_stock_kg
+	game_store.parasite_pressure = parasite_pressure
+	game_store.parasite_treatment_days_remaining = parasite_treatment_days_remaining
+	game_store.clinical_medication_days_remaining = clinical_medication_days_remaining
+	game_store.vitamin_supplement_days_remaining = vitamin_supplement_days_remaining
+	game_store.sanitary_last_event = sanitary_last_event
+	game_store.active_service_order = active_service_order
+	game_store.last_cowboy_activity = last_cowboy_activity
+	game_store.selected_crop_index = selected_crop_index
+	game_store.field_state = field_state
+	game_store.crop_days_elapsed = crop_days_elapsed
+	game_store.stored_feed_kg = stored_feed_kg
+	game_store.feeding_plan_days_remaining = feeding_plan_days_remaining
+	game_store.cash_balance = cash_balance
+	game_store.transaction_history = transaction_history
+	game_store.vegetation_last_event = vegetation_last_event
+
+
+func _sync_from_game_store() -> void:
+	current_day = game_store.current_day
+	day_of_year = game_store.day_of_year
+	current_year = game_store.current_year
+	herd_created = game_store.herd_created
+	herd_size = game_store.herd_size
+	herd_animals = game_store.herd_animals
+	next_animal_id = game_store.next_animal_id
+	herd_pasture = game_store.herd_pasture
+	herd_categories = game_store.herd_categories
+	herd_genetics = game_store.herd_genetics
+	offspring_genetics = game_store.offspring_genetics
+	average_weight_kg = game_store.average_weight_kg
+	body_condition = game_store.body_condition
+	hunger = game_store.hunger
+	thirst = game_store.thirst
+	health = game_store.health
+	herd_had_water_today = game_store.herd_had_water_today
+	pregnant_females = game_store.pregnant_females
+	gestation_days_remaining = game_store.gestation_days_remaining
+	calf_age_days = game_store.calf_age_days
+	breeding_method = game_store.breeding_method
+	forage = game_store.forage
+	pasture_quality = game_store.pasture_quality
+	pasture_degradation = game_store.pasture_degradation
+	pasture_capacity = game_store.pasture_capacity
+	soil_moisture = game_store.soil_moisture
+	soil_fertility = game_store.soil_fertility
+	soil_compaction = game_store.soil_compaction
+	soil_erosion = game_store.soil_erosion
+	soil_daily_runoff = game_store.soil_daily_runoff
+	pond_level = game_store.pond_level
+	river_level = game_store.river_level
+	rainfall_mm = game_store.rainfall_mm
+	max_temperature_c = game_store.max_temperature_c
+	consecutive_dry_days = game_store.consecutive_dry_days
+	weather_condition = game_store.weather_condition
+	heat_stress = game_store.heat_stress
+	mineral_stock_kg = game_store.mineral_stock_kg
+	supplement_stock_kg = game_store.supplement_stock_kg
+	parasite_pressure = game_store.parasite_pressure
+	parasite_treatment_days_remaining = game_store.parasite_treatment_days_remaining
+	clinical_medication_days_remaining = game_store.clinical_medication_days_remaining
+	vitamin_supplement_days_remaining = game_store.vitamin_supplement_days_remaining
+	sanitary_last_event = game_store.sanitary_last_event
+	active_service_order = game_store.active_service_order
+	last_cowboy_activity = game_store.last_cowboy_activity
+	selected_crop_index = game_store.selected_crop_index
+	field_state = game_store.field_state
+	crop_days_elapsed = game_store.crop_days_elapsed
+	stored_feed_kg = game_store.stored_feed_kg
+	feeding_plan_days_remaining = game_store.feeding_plan_days_remaining
+	cash_balance = game_store.cash_balance
+	transaction_history = game_store.transaction_history
+	vegetation_last_event = game_store.vegetation_last_event
 
 
 func _save_game(show_message: bool = true) -> void:
+	_sync_to_game_store()
 	var save_data := _build_save_data()
-	var save_file := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
-
-	if save_file == null:
-		if show_message:
-			save_status.text = "Não foi possível salvar."
-		return
-
-	save_file.store_string(JSON.stringify(save_data))
+	var success := SaveManagerClass.save_to_file(save_data)
 	if show_message:
-		save_status.text = "Partida salva."
+		save_status.text = "Partida salva." if success else "Não foi possível salvar."
 
 
 func _build_save_data() -> Dictionary:
@@ -5710,25 +5167,18 @@ func _build_save_data() -> Dictionary:
 
 func _load_game(show_message: bool = true) -> void:
 	startup_save_checked = true
-	if not FileAccess.file_exists(SAVE_PATH):
+	var save_data := SaveManagerClass.load_from_file()
+	if save_data.is_empty():
 		if show_message:
-			save_status.text = "Nenhuma partida salva."
+			save_status.text = (
+				"Nenhuma partida salva."
+				if not FileAccess.file_exists(SaveManagerClass.SAVE_PATH)
+				else "Não foi possível carregar."
+			)
 		return
 
-	var save_file := FileAccess.open(SAVE_PATH, FileAccess.READ)
-	if save_file == null:
-		if show_message:
-			save_status.text = "Não foi possível carregar."
-		return
-
-	var parsed_data = JSON.parse_string(save_file.get_as_text())
-	if not parsed_data is Dictionary:
-		if show_message:
-			save_status.text = "Arquivo de salvamento inválido."
-		return
-
-	var save_data: Dictionary = parsed_data
 	_restore_saved_game(save_data)
+	_sync_to_game_store()
 	if server_clock_synchronized:
 		_schedule_real_time_progress()
 	elif show_message:
