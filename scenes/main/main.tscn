@@ -1,0 +1,1543 @@
+[gd_scene load_steps=29 format=3]
+
+[ext_resource type="Script" path="res://scripts/camera_controller.gd" id="1_camera"]
+[ext_resource type="Script" path="res://scripts/farm_setup_controller.gd" id="2_farm"]
+[ext_resource type="Theme" path="res://assets/ui/game_ui_theme.tres" id="3_ui_theme"]
+[ext_resource type="Texture2D" path="res://assets/ui/icons/dashboard.svg" id="4_dashboard"]
+[ext_resource type="Texture2D" path="res://assets/ui/icons/farm.svg" id="5_farm"]
+[ext_resource type="Texture2D" path="res://assets/ui/icons/structures.svg" id="6_structures"]
+[ext_resource type="Texture2D" path="res://assets/ui/icons/store.svg" id="7_store"]
+[ext_resource type="Texture2D" path="res://assets/ui/icons/herd.svg" id="8_herd"]
+[ext_resource type="Texture2D" path="res://assets/ui/icons/production.svg" id="9_production"]
+[ext_resource type="Texture2D" path="res://assets/ui/icons/market.svg" id="10_market"]
+[ext_resource type="Texture2D" path="res://assets/ui/icons/finance.svg" id="11_finance"]
+[ext_resource type="Texture2D" path="res://assets/maps/fazenda-santo-antonio-relevo-seco.png" id="12_farm_map"]
+[ext_resource type="Script" path="res://scripts/water_level_gauge.gd" id="13_water_gauge"]
+[ext_resource type="Script" path="res://scripts/herd_visual_manager.gd" id="14_herd_visuals"]
+[ext_resource type="Script" path="res://scripts/construction_worker_animation.gd" id="15_worker_animation"]
+[ext_resource type="Texture2D" path="res://assets/water/pond-water.png" id="16_pond_water"]
+[ext_resource type="Texture2D" path="res://assets/water/river-natural-overlay.png" id="17_river_water"]
+
+[sub_resource type="Shader" id="ShaderRiverLevel"]
+code = "shader_type canvas_item;\n\nuniform float water_level : hint_range(0.0, 1.0) = 0.65;\n\nvoid fragment() {\n\tvec4 river = texture(TEXTURE, UV);\n\tfloat threshold = mix(0.96, 0.08, water_level);\n\tfloat coverage = smoothstep(threshold - 0.08, threshold + 0.08, river.a);\n\tfloat level_alpha = mix(0.55, 0.95, water_level);\n\tCOLOR = vec4(river.rgb, coverage * level_alpha);\n}\n"
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterialRiverLevel"]
+shader = SubResource("ShaderRiverLevel")
+shader_parameter/water_level = 0.65
+
+[sub_resource type="StyleBoxFlat" id="StyleHeader"]
+bg_color = Color(0.075, 0.09, 0.055, 1)
+border_width_bottom = 2
+border_color = Color(0.36, 0.43, 0.22, 1)
+
+[sub_resource type="StyleBoxFlat" id="StyleSidebar"]
+bg_color = Color(0.075, 0.085, 0.065, 1)
+border_width_right = 2
+border_color = Color(0.33, 0.37, 0.22, 1)
+
+[sub_resource type="StyleBoxFlat" id="StyleRail"]
+bg_color = Color(0.055, 0.065, 0.05, 1)
+border_width_right = 1
+border_color = Color(0.25, 0.29, 0.18, 1)
+
+[sub_resource type="StyleBoxFlat" id="StyleModuleHeader"]
+bg_color = Color(0.105, 0.12, 0.085, 1)
+border_width_left = 1
+border_width_bottom = 1
+border_color = Color(0.31, 0.36, 0.21, 1)
+
+[sub_resource type="StyleBoxFlat" id="StyleModuleActions"]
+bg_color = Color(0.085, 0.1, 0.07, 1)
+border_width_left = 1
+border_width_top = 1
+border_color = Color(0.35, 0.4, 0.23, 1)
+
+[sub_resource type="StyleBoxFlat" id="StyleMapFrame"]
+bg_color = Color(0, 0, 0, 0)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(0.25, 0.28, 0.16, 0.8)
+
+[sub_resource type="StyleBoxFlat" id="StyleFarmCard"]
+bg_color = Color(0.105, 0.125, 0.09, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.26, 0.31, 0.2, 0.9)
+corner_radius_top_left = 6
+corner_radius_top_right = 6
+corner_radius_bottom_right = 6
+corner_radius_bottom_left = 6
+
+[sub_resource type="StyleBoxFlat" id="StyleFarmAlert"]
+bg_color = Color(0.2, 0.15, 0.07, 1)
+border_width_left = 3
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.78, 0.58, 0.2, 0.9)
+corner_radius_top_left = 6
+corner_radius_top_right = 6
+corner_radius_bottom_right = 6
+corner_radius_bottom_left = 6
+
+[node name="Main" type="Node2D"]
+script = ExtResource("2_farm")
+
+[node name="ServerTimeRequest" type="HTTPRequest" parent="."]
+timeout = 10.0
+
+[node name="Terrain" type="Polygon2D" parent="."]
+polygon = PackedVector2Array(0, 0, 3200, 0, 3200, 1800, 0, 1800)
+color = Color(0.54, 0.43, 0.25, 1)
+
+[node name="MapBackground" type="Sprite2D" parent="."]
+position = Vector2(1600, 900)
+scale = Vector2(1.91388, 1.91286)
+texture = ExtResource("12_farm_map")
+
+[node name="Pasture1" type="Polygon2D" parent="."]
+visible = false
+
+[node name="Pasture2" type="Polygon2D" parent="."]
+visible = false
+
+[node name="ForageField" type="Polygon2D" parent="."]
+visible = false
+polygon = PackedVector2Array(-360, -170, 360, -170, 360, 170, -360, 170)
+color = Color(0.42, 0.31, 0.18, 0.82)
+
+[node name="ForageFieldLabel" type="Label" parent="."]
+visible = false
+theme_override_colors/font_color = Color(0.98, 0.94, 0.76, 1)
+theme_override_colors/font_shadow_color = Color(0.08, 0.06, 0.03, 0.9)
+theme_override_constants/shadow_offset_x = 2
+theme_override_constants/shadow_offset_y = 2
+theme_override_font_sizes/font_size = 22
+text = "TALHÃO FORRAGEIRO\nSEM PREPARO"
+horizontal_alignment = 1
+
+[node name="InternalRoad" type="Line2D" parent="."]
+visible = false
+points = PackedVector2Array(1550, 0, 1550, 900, 1810, 1120, 2500, 1120)
+width = 12.0
+default_color = Color(0.69, 0.56, 0.35, 1)
+joint_mode = 2
+
+[node name="Pond1Visual" type="Sprite2D" parent="."]
+position = Vector2(934, 1129)
+scale = Vector2(0.32, 0.42)
+texture = ExtResource("16_pond_water")
+
+[node name="Pond2Visual" type="Sprite2D" parent="."]
+position = Vector2(1531, 1314)
+rotation = 0.12
+scale = Vector2(0.32, 0.42)
+texture = ExtResource("16_pond_water")
+
+[node name="Pond1" type="Polygon2D" parent="."]
+visible = false
+polygon = PackedVector2Array(860, 1090, 900, 1045, 965, 1035, 1020, 1065, 1040, 1115, 1015, 1165, 955, 1185, 895, 1160)
+color = Color(0.19, 0.43, 0.52, 1)
+
+[node name="Pond2" type="Polygon2D" parent="."]
+visible = false
+polygon = PackedVector2Array(1450, 1265, 1490, 1225, 1550, 1220, 1605, 1250, 1625, 1295, 1600, 1340, 1540, 1355, 1480, 1335)
+color = Color(0.19, 0.43, 0.52, 1)
+
+[node name="IntermittentRiver" type="Sprite2D" parent="."]
+material = SubResource("ShaderMaterialRiverLevel")
+position = Vector2(1600, 900)
+scale = Vector2(1.91388, 1.91286)
+texture = ExtResource("17_river_water")
+
+[node name="RiverLabel" type="Label" parent="."]
+visible = false
+position = Vector2(1230, 210)
+theme_override_colors/font_color = Color(0.9, 0.96, 1, 1)
+theme_override_colors/font_shadow_color = Color(0.05, 0.12, 0.15, 0.9)
+theme_override_constants/shadow_offset_x = 2
+theme_override_constants/shadow_offset_y = 2
+theme_override_font_sizes/font_size = 21
+text = "RIO INTERMITENTE\nvazão média"
+
+[node name="PerimeterFence" type="Line2D" parent="."]
+visible = false
+points = PackedVector2Array(0, 0, 3200, 0, 3200, 1800, 0, 1800)
+width = 3.0
+default_color = Color(0.23, 0.18, 0.09, 1)
+closed = true
+
+[node name="InternalFence" type="Line2D" parent="."]
+visible = false
+width = 2.5
+default_color = Color(0.23, 0.18, 0.09, 1)
+
+[node name="InternalFence2" type="Line2D" parent="."]
+visible = false
+width = 2.5
+default_color = Color(0.23, 0.18, 0.09, 1)
+
+[node name="Gate" type="Line2D" parent="."]
+visible = false
+width = 4.0
+default_color = Color(0.54, 0.32, 0.12, 1)
+
+[node name="Pond1Label" type="Label" parent="."]
+visible = false
+position = Vector2(885, 1085)
+theme_override_colors/font_color = Color(0.92, 0.97, 1, 1)
+theme_override_colors/font_shadow_color = Color(0.05, 0.12, 0.15, 0.9)
+theme_override_constants/shadow_offset_x = 2
+theme_override_constants/shadow_offset_y = 2
+theme_override_font_sizes/font_size = 22
+text = "AÇUDE"
+
+[node name="Pond2Label" type="Label" parent="."]
+visible = false
+position = Vector2(1475, 1260)
+theme_override_colors/font_color = Color(0.92, 0.97, 1, 1)
+theme_override_colors/font_shadow_color = Color(0.05, 0.12, 0.15, 0.9)
+theme_override_constants/shadow_offset_x = 2
+theme_override_constants/shadow_offset_y = 2
+theme_override_font_sizes/font_size = 22
+text = "AÇUDE"
+
+[node name="PropertyLabel" type="Label" parent="."]
+visible = false
+position = Vector2(1130, 760)
+theme_override_colors/font_color = Color(0.25, 0.18, 0.09, 1)
+theme_override_font_sizes/font_size = 34
+text = "PROPRIEDADE SEM CERCAS"
+horizontal_alignment = 1
+
+[node name="Pasture1Label" type="Label" parent="."]
+visible = false
+theme_override_colors/font_color = Color(0.96, 0.94, 0.83, 1)
+theme_override_colors/font_shadow_color = Color(0.08, 0.06, 0.03, 0.9)
+theme_override_constants/shadow_offset_x = 2
+theme_override_constants/shadow_offset_y = 2
+theme_override_font_sizes/font_size = 30
+text = "PASTO 1"
+
+[node name="Pasture2Label" type="Label" parent="."]
+visible = false
+theme_override_colors/font_color = Color(0.96, 0.94, 0.83, 1)
+theme_override_colors/font_shadow_color = Color(0.08, 0.06, 0.03, 0.9)
+theme_override_constants/shadow_offset_x = 2
+theme_override_constants/shadow_offset_y = 2
+theme_override_font_sizes/font_size = 30
+text = "PASTO 2"
+
+[node name="HerdMarker" type="Label" parent="."]
+visible = false
+theme_override_colors/font_color = Color(0.96, 0.9, 0.72, 1)
+theme_override_colors/font_shadow_color = Color(0.08, 0.06, 0.03, 0.9)
+theme_override_constants/shadow_offset_x = 2
+theme_override_constants/shadow_offset_y = 2
+theme_override_font_sizes/font_size = 22
+text = "●  ●  ●  ●  ●\n  ●  ●  ●  ●  ●\nLOTE: 10 BOVINOS"
+horizontal_alignment = 1
+
+[node name="HerdVisuals" type="Node2D" parent="."]
+script = ExtResource("14_herd_visuals")
+
+[node name="CowboyVisual" type="Node2D" parent="."]
+visible = false
+z_index = 12
+
+[node name="Sprite" type="AnimatedSprite2D" parent="CowboyVisual"]
+script = ExtResource("15_worker_animation")
+action_row = 0
+work_fps = 4.0
+
+[node name="ConstructionCrewVisual" type="Node2D" parent="."]
+visible = false
+z_index = 13
+
+[node name="Worker1" type="AnimatedSprite2D" parent="ConstructionCrewVisual"]
+position = Vector2(-12, 0)
+script = ExtResource("15_worker_animation")
+action_row = 1
+
+[node name="Worker2" type="AnimatedSprite2D" parent="ConstructionCrewVisual"]
+script = ExtResource("15_worker_animation")
+action_row = 2
+work_fps = 4.0
+
+[node name="Worker3" type="AnimatedSprite2D" parent="ConstructionCrewVisual"]
+position = Vector2(12, 0)
+script = ExtResource("15_worker_animation")
+action_row = 3
+work_fps = 4.5
+
+[node name="CaatingaLabel" type="Label" parent="."]
+visible = false
+position = Vector2(2180, 470)
+theme_override_colors/font_color = Color(0.25, 0.18, 0.09, 1)
+theme_override_font_sizes/font_size = 28
+text = "ÁREA DE CAATINGA"
+
+[node name="Pond1Gauge" type="Node2D" parent="."]
+position = Vector2(1060, 995)
+script = ExtResource("13_water_gauge")
+
+[node name="Pond2Gauge" type="Node2D" parent="."]
+position = Vector2(1650, 1170)
+script = ExtResource("13_water_gauge")
+
+[node name="PlayerStructures" type="Node2D" parent="."]
+
+[node name="ConstructionPreview" type="Line2D" parent="PlayerStructures"]
+visible = false
+width = 16.0
+default_color = Color(1, 0.82, 0.3, 0.72)
+joint_mode = 2
+
+[node name="Camera" type="Camera2D" parent="."]
+position = Vector2(1169.4445, 800)
+zoom = Vector2(0.36, 0.36)
+position_smoothing_enabled = true
+position_smoothing_speed = 8.0
+script = ExtResource("1_camera")
+
+[node name="Interface" type="CanvasLayer" parent="."]
+
+[node name="MainLayout" type="VBoxContainer" parent="Interface"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+theme_override_constants/separation = 0
+
+[node name="Header" type="PanelContainer" parent="Interface/MainLayout"]
+custom_minimum_size = Vector2(0, 76)
+layout_mode = 2
+theme_override_styles/panel = SubResource("StyleHeader")
+
+[node name="HeaderMargin" type="MarginContainer" parent="Interface/MainLayout/Header"]
+layout_mode = 2
+theme_override_constants/margin_left = 20
+theme_override_constants/margin_top = 10
+theme_override_constants/margin_right = 20
+theme_override_constants/margin_bottom = 10
+
+[node name="HeaderRow" type="HBoxContainer" parent="Interface/MainLayout/Header/HeaderMargin"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="GameTitle" type="Label" parent="Interface/MainLayout/Header/HeaderMargin/HeaderRow"]
+custom_minimum_size = Vector2(235, 0)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.96, 0.82, 0.4, 1)
+theme_override_font_sizes/font_size = 22
+text = "SIMULADOR PECUÁRIO"
+vertical_alignment = 1
+
+[node name="ClimateIcon" type="TextureRect" parent="Interface/MainLayout/Header/HeaderMargin/HeaderRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(26, 26)
+layout_mode = 2
+expand_mode = 1
+stretch_mode = 5
+
+[node name="ClimateStatus" type="Label" parent="Interface/MainLayout/Header/HeaderMargin/HeaderRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(330, 0)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.95, 0.67, 0.25, 1)
+theme_override_font_sizes/font_size = 14
+text = "01/11/0001 00:00 | Chuvoso • Seco | 33°C"
+vertical_alignment = 1
+
+[node name="CashStatus" type="Label" parent="Interface/MainLayout/Header/HeaderMargin/HeaderRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(115, 0)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.58, 0.9, 0.56, 1)
+theme_override_font_sizes/font_size = 14
+text = "CAIXA\nR$ 50.000"
+vertical_alignment = 1
+
+[node name="HeaderSpacer" type="Control" parent="Interface/MainLayout/Header/HeaderMargin/HeaderRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+mouse_filter = 2
+
+[node name="SaveStatus" type="Label" parent="Interface/MainLayout/Header/HeaderMargin/HeaderRow"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.96, 0.82, 0.4, 1)
+theme_override_font_sizes/font_size = 13
+horizontal_alignment = 2
+vertical_alignment = 1
+
+[node name="SaveButton" type="Button" parent="Interface/MainLayout/Header/HeaderMargin/HeaderRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(72, 42)
+layout_mode = 2
+text = "Salvar"
+
+[node name="LoadButton" type="Button" parent="Interface/MainLayout/Header/HeaderMargin/HeaderRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(75, 42)
+layout_mode = 2
+text = "Carregar"
+
+[node name="Body" type="HBoxContainer" parent="Interface/MainLayout"]
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_constants/separation = 0
+mouse_filter = 2
+
+[node name="Sidebar" type="Control" parent="Interface/MainLayout/Body"]
+custom_minimum_size = Vector2(360, 0)
+layout_mode = 2
+theme = ExtResource("3_ui_theme")
+
+[node name="SidebarBackground" type="Panel" parent="Interface/MainLayout/Body/Sidebar"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+theme_override_styles/panel = SubResource("StyleSidebar")
+
+[node name="NavigationRail" type="Panel" parent="Interface/MainLayout/Body/Sidebar"]
+layout_mode = 1
+anchors_preset = 9
+anchor_bottom = 1.0
+offset_right = 128.0
+grow_vertical = 2
+theme_override_styles/panel = SubResource("StyleRail")
+
+[node name="RailMargin" type="MarginContainer" parent="Interface/MainLayout/Body/Sidebar/NavigationRail"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/margin_left = 24
+theme_override_constants/margin_top = 10
+theme_override_constants/margin_right = 7
+theme_override_constants/margin_bottom = 10
+
+[node name="RailButtons" type="VBoxContainer" parent="Interface/MainLayout/Body/Sidebar/NavigationRail/RailMargin"]
+layout_mode = 2
+theme_override_constants/separation = 5
+
+[node name="RailTitle" type="Label" parent="Interface/MainLayout/Body/Sidebar/NavigationRail/RailMargin/RailButtons"]
+custom_minimum_size = Vector2(0, 24)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.57, 0.61, 0.48, 1)
+theme_override_font_sizes/font_size = 11
+text = "GESTÃO"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="ModuleHeader" type="Panel" parent="Interface/MainLayout/Body/Sidebar"]
+layout_mode = 1
+anchor_right = 1.0
+offset_left = 136.0
+offset_bottom = 92.0
+grow_horizontal = 2
+mouse_filter = 2
+theme_override_styles/panel = SubResource("StyleModuleHeader")
+
+[node name="ModuleHeaderMargin" type="MarginContainer" parent="Interface/MainLayout/Body/Sidebar/ModuleHeader"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/margin_left = 12
+theme_override_constants/margin_top = 10
+theme_override_constants/margin_right = 10
+theme_override_constants/margin_bottom = 8
+
+[node name="ModuleHeaderContent" type="VBoxContainer" parent="Interface/MainLayout/Body/Sidebar/ModuleHeader/ModuleHeaderMargin"]
+layout_mode = 2
+theme_override_constants/separation = 3
+
+[node name="ModuleTitle" type="Label" parent="Interface/MainLayout/Body/Sidebar/ModuleHeader/ModuleHeaderMargin/ModuleHeaderContent"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.96, 0.82, 0.4, 1)
+theme_override_font_sizes/font_size = 18
+text = "FAZENDA"
+
+[node name="ModuleDescription" type="Label" parent="Interface/MainLayout/Body/Sidebar/ModuleHeader/ModuleHeaderMargin/ModuleHeaderContent"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.67, 0.7, 0.61, 1)
+theme_override_font_sizes/font_size = 11
+text = "Visão geral da propriedade"
+autowrap_mode = 2
+
+[node name="ModuleActions" type="Panel" parent="Interface/MainLayout/Body/Sidebar"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 1
+anchors_preset = 12
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 136.0
+offset_top = -90.0
+grow_horizontal = 2
+grow_vertical = 0
+theme_override_styles/panel = SubResource("StyleModuleActions")
+
+[node name="ModuleActionsMargin" type="MarginContainer" parent="Interface/MainLayout/Body/Sidebar/ModuleActions"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/margin_left = 9
+theme_override_constants/margin_top = 9
+theme_override_constants/margin_right = 9
+theme_override_constants/margin_bottom = 9
+
+[node name="ModuleActionsContent" type="VBoxContainer" parent="Interface/MainLayout/Body/Sidebar/ModuleActions/ModuleActionsMargin"]
+layout_mode = 2
+theme_override_constants/separation = 5
+
+[node name="ConstructionModeLabel" type="Label" parent="Interface/MainLayout/Body/Sidebar/ModuleActions/ModuleActionsMargin/ModuleActionsContent"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.92, 0.74, 0.35, 1)
+theme_override_font_sizes/font_size = 11
+text = "CONSTRUÇÃO"
+horizontal_alignment = 1
+
+[node name="ModuleActionButtons" type="HBoxContainer" parent="Interface/MainLayout/Body/Sidebar/ModuleActions/ModuleActionsMargin/ModuleActionsContent"]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="FinishConstructionButton" type="Button" parent="Interface/MainLayout/Body/Sidebar/ModuleActions/ModuleActionsMargin/ModuleActionsContent/ModuleActionButtons"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(96, 38)
+layout_mode = 2
+size_flags_horizontal = 3
+disabled = true
+text = "Confirmar"
+
+[node name="CancelFreeConstructionButton" type="Button" parent="Interface/MainLayout/Body/Sidebar/ModuleActions/ModuleActionsMargin/ModuleActionsContent/ModuleActionButtons"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(96, 38)
+layout_mode = 2
+size_flags_horizontal = 3
+disabled = true
+text = "Cancelar"
+
+[node name="SidebarMargin" type="MarginContainer" parent="Interface/MainLayout/Body/Sidebar"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 136.0
+grow_horizontal = 2
+grow_vertical = 2
+clip_contents = true
+theme_override_constants/margin_left = 10
+theme_override_constants/margin_top = 102
+theme_override_constants/margin_right = 8
+theme_override_constants/margin_bottom = 10
+
+[node name="SidebarScroll" type="ScrollContainer" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin"]
+layout_mode = 2
+horizontal_scroll_mode = 0
+mouse_force_pass_scroll_events = false
+
+[node name="SidebarContent" type="VBoxContainer" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 7
+
+[node name="DashboardModuleButton" type="Button" parent="Interface/MainLayout/Body/Sidebar/NavigationRail/RailMargin/RailButtons"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 57)
+layout_mode = 2
+toggle_mode = true
+icon = ExtResource("4_dashboard")
+expand_icon = true
+icon_max_width = 18
+alignment = 0
+theme_override_font_sizes/font_size = 11
+text = "Dashboard\nEM BREVE"
+tooltip_text = "Dashboard — indicadores da fazenda (em breve)"
+
+[node name="FarmModuleButton" type="Button" parent="Interface/MainLayout/Body/Sidebar/NavigationRail/RailMargin/RailButtons"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 54)
+layout_mode = 2
+toggle_mode = true
+icon = ExtResource("5_farm")
+expand_icon = true
+icon_max_width = 18
+alignment = 0
+theme_override_font_sizes/font_size = 11
+text = "Fazenda"
+tooltip_text = "Visão geral da propriedade"
+
+[node name="StructureModuleButton" type="Button" parent="Interface/MainLayout/Body/Sidebar/NavigationRail/RailMargin/RailButtons"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 54)
+layout_mode = 2
+toggle_mode = true
+icon = ExtResource("6_structures")
+expand_icon = true
+icon_max_width = 18
+alignment = 0
+theme_override_font_sizes/font_size = 11
+text = "Estruturas"
+tooltip_text = "Estruturas construídas e porteiras"
+
+[node name="StoreModuleButton" type="Button" parent="Interface/MainLayout/Body/Sidebar/NavigationRail/RailMargin/RailButtons"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 54)
+layout_mode = 2
+toggle_mode = true
+icon = ExtResource("7_store")
+expand_icon = true
+icon_max_width = 18
+alignment = 0
+theme_override_font_sizes/font_size = 11
+text = "Loja Rural"
+tooltip_text = "Comprar e posicionar estruturas"
+
+[node name="HerdModuleButton" type="Button" parent="Interface/MainLayout/Body/Sidebar/NavigationRail/RailMargin/RailButtons"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 54)
+layout_mode = 2
+toggle_mode = true
+icon = ExtResource("8_herd")
+expand_icon = true
+icon_max_width = 18
+alignment = 0
+theme_override_font_sizes/font_size = 11
+text = "Rebanho"
+tooltip_text = "Manejo, lotes e reprodução"
+
+[node name="ProductionModuleButton" type="Button" parent="Interface/MainLayout/Body/Sidebar/NavigationRail/RailMargin/RailButtons"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 54)
+layout_mode = 2
+toggle_mode = true
+icon = ExtResource("9_production")
+expand_icon = true
+icon_max_width = 18
+alignment = 0
+theme_override_font_sizes/font_size = 11
+text = "Produção"
+tooltip_text = "Nutrição e produção forrageira"
+
+[node name="MarketModuleButton" type="Button" parent="Interface/MainLayout/Body/Sidebar/NavigationRail/RailMargin/RailButtons"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 54)
+layout_mode = 2
+toggle_mode = true
+icon = ExtResource("10_market")
+expand_icon = true
+icon_max_width = 18
+alignment = 0
+theme_override_font_sizes/font_size = 11
+text = "Mercado"
+tooltip_text = "Compra e venda de animais"
+
+[node name="FinanceModuleButton" type="Button" parent="Interface/MainLayout/Body/Sidebar/NavigationRail/RailMargin/RailButtons"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 54)
+layout_mode = 2
+toggle_mode = true
+icon = ExtResource("11_finance")
+expand_icon = true
+icon_max_width = 18
+alignment = 0
+theme_override_font_sizes/font_size = 11
+text = "Financeiro"
+tooltip_text = "Caixa e movimentações financeiras"
+
+[node name="DashboardPanel" type="Label" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 150)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.92, 0.9, 0.78, 1)
+theme_override_font_sizes/font_size = 15
+text = "EM BREVE\n\nIndicadores produtivos, financeiros e alertas da propriedade serão reunidos aqui."
+horizontal_alignment = 1
+vertical_alignment = 1
+autowrap_mode = 2
+
+[node name="FarmAlertCard" type="PanelContainer" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 66)
+layout_mode = 2
+theme_override_styles/panel = SubResource("StyleFarmAlert")
+
+[node name="Margin" type="MarginContainer" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent/FarmAlertCard"]
+layout_mode = 2
+theme_override_constants/margin_left = 10
+theme_override_constants/margin_top = 7
+theme_override_constants/margin_right = 8
+theme_override_constants/margin_bottom = 7
+
+[node name="FarmPanel" type="Label" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent/FarmAlertCard/Margin"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.87, 0.55, 1)
+theme_override_font_sizes/font_size = 12
+text = "Carregando informações da propriedade..."
+autowrap_mode = 2
+
+[node name="FarmSoilReliefCard" type="PanelContainer" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+custom_minimum_size = Vector2(0, 102)
+layout_mode = 2
+theme_override_styles/panel = SubResource("StyleFarmCard")
+
+[node name="Margin" type="MarginContainer" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent/FarmSoilReliefCard"]
+layout_mode = 2
+theme_override_constants/margin_left = 10
+theme_override_constants/margin_top = 8
+theme_override_constants/margin_right = 8
+theme_override_constants/margin_bottom = 8
+
+[node name="FarmSoilReliefStatus" type="Label" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent/FarmSoilReliefCard/Margin"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.92, 0.9, 0.78, 1)
+theme_override_font_sizes/font_size = 12
+text = "RELEVO E SOLO\nSelecione um pasto para consultar."
+autowrap_mode = 2
+vertical_alignment = 1
+
+[node name="FarmPastureSelectorLabel" type="Label" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.96, 0.82, 0.4, 1)
+theme_override_font_sizes/font_size = 11
+text = "PASTO"
+
+[node name="FarmPastureSelector" type="OptionButton" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 36)
+layout_mode = 2
+theme_override_font_sizes/font_size = 12
+tooltip_text = "Selecione aqui ou clique diretamente sobre um pasto no mapa."
+
+[node name="FarmLayersTitle" type="Label" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.96, 0.82, 0.4, 1)
+theme_override_font_sizes/font_size = 11
+text = "CAMADAS DO MAPA"
+
+[node name="FarmPastureLayerButton" type="CheckButton" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 32)
+layout_mode = 2
+button_pressed = true
+theme_override_font_sizes/font_size = 12
+text = "Pastagens"
+
+[node name="FarmWaterLayerButton" type="CheckButton" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 32)
+layout_mode = 2
+button_pressed = true
+theme_override_font_sizes/font_size = 12
+text = "Indicadores de água"
+
+[node name="FarmTerrainInfoButton" type="CheckButton" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 32)
+layout_mode = 2
+theme_override_font_sizes/font_size = 12
+text = "Informações do terreno"
+tooltip_text = "Mostra elevação relativa, relevo, solo e umidade ao passar o mouse."
+
+[node name="FarmStructuresLayerButton" type="CheckButton" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 32)
+layout_mode = 2
+button_pressed = true
+theme_override_font_sizes/font_size = 12
+text = "Estruturas"
+
+[node name="StructuresEmptyCard" type="PanelContainer" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 86)
+layout_mode = 2
+theme_override_styles/panel = SubResource("StyleFarmCard")
+
+[node name="StructuresInventory" type="Label" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent/StructuresEmptyCard"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.92, 0.9, 0.78, 1)
+theme_override_font_sizes/font_size = 12
+text = "Nenhuma estrutura construída."
+horizontal_alignment = 1
+vertical_alignment = 1
+autowrap_mode = 2
+
+[node name="StructuresStats" type="GridContainer" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_constants/h_separation = 6
+theme_override_constants/v_separation = 6
+columns = 2
+
+[node name="PaddocksCard" type="PanelContainer" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent/StructuresStats"]
+custom_minimum_size = Vector2(103, 58)
+layout_mode = 2
+theme_override_styles/panel = SubResource("StyleFarmCard")
+
+[node name="StructuresPaddocksStat" type="Label" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent/StructuresStats/PaddocksCard"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.92, 0.9, 0.78, 1)
+theme_override_font_sizes/font_size = 11
+text = "PASTOS\n0 formados"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="FencesCard" type="PanelContainer" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent/StructuresStats"]
+custom_minimum_size = Vector2(103, 58)
+layout_mode = 2
+theme_override_styles/panel = SubResource("StyleFarmCard")
+
+[node name="StructuresFencesStat" type="Label" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent/StructuresStats/FencesCard"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.92, 0.9, 0.78, 1)
+theme_override_font_sizes/font_size = 11
+text = "CERCAS\n0 construídas"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="GatesCard" type="PanelContainer" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent/StructuresStats"]
+custom_minimum_size = Vector2(103, 58)
+layout_mode = 2
+theme_override_styles/panel = SubResource("StyleFarmCard")
+
+[node name="StructuresGatesStat" type="Label" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent/StructuresStats/GatesCard"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.92, 0.9, 0.78, 1)
+theme_override_font_sizes/font_size = 11
+text = "PORTEIRAS\n0 instaladas"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="SupportCard" type="PanelContainer" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent/StructuresStats"]
+custom_minimum_size = Vector2(103, 58)
+layout_mode = 2
+theme_override_styles/panel = SubResource("StyleFarmCard")
+
+[node name="StructuresSupportStat" type="Label" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent/StructuresStats/SupportCard"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.92, 0.9, 0.78, 1)
+theme_override_font_sizes/font_size = 11
+text = "APOIO\n0 estruturas"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="StructuresInvestmentCard" type="PanelContainer" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 64)
+layout_mode = 2
+theme_override_styles/panel = SubResource("StyleFarmCard")
+
+[node name="StructuresInvestment" type="Label" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent/StructuresInvestmentCard"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.96, 0.82, 0.4, 1)
+theme_override_font_sizes/font_size = 12
+text = "VALOR CONSTRUÍDO\nR$ 0"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="StoreTitle" type="Label" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.96, 0.82, 0.4, 1)
+theme_override_font_sizes/font_size = 18
+text = "LOJA RURAL"
+
+[node name="StoreStatusCard" type="PanelContainer" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+custom_minimum_size = Vector2(0, 78)
+layout_mode = 2
+theme_override_styles/panel = SubResource("StyleFarmCard")
+
+[node name="StoreStatus" type="Label" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent/StoreStatusCard"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.92, 0.9, 0.78, 1)
+theme_override_font_sizes/font_size = 12
+text = "Escolha um item, posicione no mapa e confirme a construção."
+horizontal_alignment = 1
+vertical_alignment = 1
+autowrap_mode = 2
+
+[node name="StoreFencesTitle" type="Label" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.96, 0.82, 0.4, 1)
+theme_override_font_sizes/font_size = 11
+text = "CERCAS"
+
+[node name="FullPerimeterFenceButton" type="Button" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 54)
+layout_mode = 2
+alignment = 0
+text = "Cercar toda a fazenda\nArame farpado"
+tooltip_text = "A equipe rural cerca automaticamente todo o limite da propriedade. Não forma os pastos internos."
+autowrap_mode = 2
+
+[node name="BarbedFenceButton" type="Button" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 44)
+layout_mode = 2
+toggle_mode = true
+alignment = 0
+text = "Cerca farpada — R$ 120/100 m"
+tooltip_text = "Nesta versão, os tipos de cerca diferem pelo custo e pela aparência."
+
+[node name="SmoothFenceButton" type="Button" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 44)
+layout_mode = 2
+toggle_mode = true
+alignment = 0
+text = "Cerca lisa — R$ 180/100 m"
+tooltip_text = "Nesta versão, os tipos de cerca diferem pelo custo e pela aparência."
+
+[node name="ElectricFenceButton" type="Button" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 44)
+layout_mode = 2
+toggle_mode = true
+alignment = 0
+text = "Cerca elétrica — R$ 250/100 m"
+tooltip_text = "Nesta versão, os tipos de cerca diferem pelo custo e pela aparência."
+
+[node name="StoreInstallationsTitle" type="Label" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.96, 0.82, 0.4, 1)
+theme_override_font_sizes/font_size = 11
+text = "INSTALAÇÕES"
+
+[node name="StoreGateButton" type="Button" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 48)
+layout_mode = 2
+toggle_mode = true
+alignment = 0
+text = "Porteira — R$ 500\nRequer uma cerca"
+
+[node name="CorralButton" type="Button" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 44)
+layout_mode = 2
+toggle_mode = true
+alignment = 0
+text = "Curral simples — R$ 8.000"
+
+[node name="ScaleButton" type="Button" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 48)
+layout_mode = 2
+toggle_mode = true
+alignment = 0
+text = "Balança pecuária — R$ 4.500\nRequer um curral"
+
+[node name="SidebarTitle" type="Label" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.96, 0.82, 0.4, 1)
+theme_override_font_sizes/font_size = 18
+text = "ESTRUTURA DA FAZENDA"
+
+[node name="SetupStatus" type="Label" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 68)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.92, 0.9, 0.78, 1)
+theme_override_font_sizes/font_size = 13
+text = "Perímetro: não cercado\nDivisões internas: nenhuma\nPastos formados: nenhum"
+autowrap_mode = 2
+
+[node name="PerimeterButton" type="Button" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 36)
+layout_mode = 2
+text = "Cercar toda a propriedade"
+
+[node name="HorizontalButton" type="Button" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 36)
+layout_mode = 2
+disabled = true
+text = "Criar divisão horizontal"
+
+[node name="VerticalButton" type="Button" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 36)
+layout_mode = 2
+disabled = true
+text = "Criar divisão vertical"
+
+[node name="CancelButton" type="Button" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 36)
+layout_mode = 2
+disabled = true
+text = "Cancelar construção"
+
+[node name="GateInstallButton" type="Button" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 36)
+layout_mode = 2
+disabled = true
+text = "Instalar porteira"
+
+[node name="SetupMessage" type="Label" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 58)
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.73, 0.3, 1)
+theme_override_font_sizes/font_size = 13
+text = "Primeiro, cerque todo o perímetro da fazenda."
+autowrap_mode = 2
+
+[node name="HerdSeparator" type="HSeparator" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+layout_mode = 2
+
+[node name="HerdTitle" type="Label" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.96, 0.82, 0.4, 1)
+theme_override_font_sizes/font_size = 18
+text = "REBANHO E MANEJO"
+
+[node name="HerdStatus" type="Label" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 68)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.92, 0.9, 0.78, 1)
+theme_override_font_sizes/font_size = 13
+text = "Cerque a propriedade, instale uma porteira e adquira animais no Mercado."
+autowrap_mode = 2
+
+[node name="HerdSelectionInfo" type="Label" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 42)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.96, 0.82, 0.4, 1)
+theme_override_font_sizes/font_size = 12
+text = "Nenhum lote selecionado."
+autowrap_mode = 2
+
+[node name="SelectHerdButton" type="Button" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 36)
+layout_mode = 2
+disabled = true
+text = "Selecionar lote"
+
+[node name="TransferHerdButton" type="Button" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 36)
+layout_mode = 2
+disabled = true
+text = "Transferir para Pasto 2"
+
+[node name="ServiceOrderSeparator" type="HSeparator" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+layout_mode = 2
+
+[node name="ServiceOrderTitle" type="Label" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.96, 0.82, 0.4, 1)
+theme_override_font_sizes/font_size = 18
+text = "OPERAÇÃO AUTOMÁTICA"
+
+[node name="ServiceOrderStatus" type="Label" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 72)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.92, 0.9, 0.78, 1)
+theme_override_font_sizes/font_size = 13
+text = "Nenhum manejo em andamento."
+autowrap_mode = 2
+
+[node name="ReproductionSeparator" type="HSeparator" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+layout_mode = 2
+
+[node name="ReproductionTitle" type="Label" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.96, 0.82, 0.4, 1)
+theme_override_font_sizes/font_size = 18
+text = "REPRODUÇÃO E GENÉTICA"
+
+[node name="ReproductionStatus" type="Label" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 144)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.92, 0.9, 0.78, 1)
+theme_override_font_sizes/font_size = 13
+text = "Compre animais no Mercado para iniciar o manejo reprodutivo."
+autowrap_mode = 2
+
+[node name="NaturalBreedingButton" type="Button" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 36)
+layout_mode = 2
+disabled = true
+text = "Iniciar monta natural"
+
+[node name="InseminationButton" type="Button" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 36)
+layout_mode = 2
+disabled = true
+text = "Inseminar matrizes — R$ 1.500"
+
+[node name="SelectGeneticsButton" type="Button" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 36)
+layout_mode = 2
+disabled = true
+text = "Selecionar genética dos jovens"
+
+[node name="SanitarySeparator" type="HSeparator" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+layout_mode = 2
+
+[node name="SanitaryTitle" type="Label" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.96, 0.82, 0.4, 1)
+theme_override_font_sizes/font_size = 18
+text = "SANIDADE"
+
+[node name="SanitaryStatus" type="Label" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 150)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.92, 0.9, 0.78, 1)
+theme_override_font_sizes/font_size = 13
+text = "Compre animais no Mercado para iniciar o manejo sanitário."
+autowrap_mode = 2
+
+[node name="SanitaryMedicinesLabel" type="Label" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.96, 0.82, 0.4, 1)
+theme_override_font_sizes/font_size = 12
+text = "MEDICAMENTOS"
+
+[node name="ParasiteTreatmentButton" type="Button" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 48)
+layout_mode = 2
+disabled = true
+text = "Aplicar controle parasitário"
+autowrap_mode = 2
+
+[node name="ClinicalMedicationButton" type="Button" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 48)
+layout_mode = 2
+disabled = true
+text = "Tratar animais em estado clínico"
+tooltip_text = "Recupera a saúde dos animais doentes. Não substitui a prevenção."
+autowrap_mode = 2
+
+[node name="SanitaryVaccinesLabel" type="Label" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.96, 0.82, 0.4, 1)
+theme_override_font_sizes/font_size = 12
+text = "VACINAS"
+
+[node name="BrucellosisVaccineButton" type="Button" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 52)
+layout_mode = 2
+disabled = true
+text = "Vacinar bezerras contra brucelose"
+autowrap_mode = 2
+
+[node name="ClostridiosisVaccineButton" type="Button" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 52)
+layout_mode = 2
+disabled = true
+text = "Vacinar contra clostridioses"
+tooltip_text = "Proteção individual por 365 dias para bovinos a partir de 60 dias."
+autowrap_mode = 2
+
+[node name="SanitarySupplementsLabel" type="Label" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.96, 0.82, 0.4, 1)
+theme_override_font_sizes/font_size = 12
+text = "SUPLEMENTOS DE APOIO"
+
+[node name="VitaminSupplementButton" type="Button" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 52)
+layout_mode = 2
+disabled = true
+text = "Iniciar protocolo vitamínico-mineral"
+tooltip_text = "Suporte sanitário por 30 dias. O suplemento proteico continua no módulo Produção."
+autowrap_mode = 2
+
+[node name="NutritionSeparator" type="HSeparator" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+layout_mode = 2
+
+[node name="NutritionTitle" type="Label" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.96, 0.82, 0.4, 1)
+theme_override_font_sizes/font_size = 18
+text = "NUTRIÇÃO E PASTOS"
+autowrap_mode = 2
+
+[node name="NutritionStatus" type="Label" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 138)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.92, 0.9, 0.78, 1)
+theme_override_font_sizes/font_size = 13
+text = "Área de manejo: forragem 100% | qualidade 75%\nDegradação: 0% | Lotação: sem lote\nEstoque: 0 kg mineral | 0 kg suplemento"
+autowrap_mode = 2
+
+[node name="VegetationSpeciesSelectorLabel" type="Label" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.78, 0.76, 0.65, 1)
+theme_override_font_sizes/font_size = 12
+text = "COBERTURA PARA FORMAÇÃO OU REFORMA"
+autowrap_mode = 2
+
+[node name="VegetationSpeciesSelector" type="OptionButton" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 40)
+layout_mode = 2
+
+[node name="VegetationRestButton" type="Button" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 40)
+layout_mode = 2
+text = "Colocar em descanso"
+
+[node name="VegetationFormButton" type="Button" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 48)
+layout_mode = 2
+text = "Formar pastagem selecionada"
+autowrap_mode = 2
+
+[node name="VegetationFertilizeButton" type="Button" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 40)
+layout_mode = 2
+text = "Corrigir e adubar solo"
+
+[node name="VegetationRecoverButton" type="Button" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 40)
+layout_mode = 2
+text = "Iniciar recuperação assistida"
+
+[node name="BuyMineralButton" type="Button" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 48)
+layout_mode = 2
+text = "Comprar sal mineral 25 kg — R$ 180"
+autowrap_mode = 2
+
+[node name="BuySupplementButton" type="Button" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 48)
+layout_mode = 2
+text = "Comprar suplemento 100 kg — R$ 320"
+autowrap_mode = 2
+
+[node name="WaterSeparator" type="HSeparator" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+layout_mode = 2
+
+[node name="WaterTitle" type="Label" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.96, 0.82, 0.4, 1)
+theme_override_font_sizes/font_size = 18
+text = "ÁGUA NATURAL"
+
+[node name="WaterStatus" type="Label" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 82)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.92, 0.9, 0.78, 1)
+theme_override_font_sizes/font_size = 13
+text = "Açudes: P1 alto | P2 alto\nRio intermitente: vazão média\nAcesso atual do lote: sem lote"
+autowrap_mode = 2
+
+[node name="AgricultureSeparator" type="HSeparator" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+layout_mode = 2
+
+[node name="AgricultureTitle" type="Label" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+custom_minimum_size = Vector2(0, 44)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.96, 0.82, 0.4, 1)
+theme_override_font_sizes/font_size = 18
+text = "AGRICULTURA FORRAGEIRA"
+autowrap_mode = 2
+
+[node name="AgricultureStatus" type="Label" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 112)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.92, 0.9, 0.78, 1)
+theme_override_font_sizes/font_size = 13
+text = "Talhão: sem preparo | Cultura: Milho para silagem\nEstoque: 0 kg silagem | 0 kg feno\nForragem fresca: 0 kg | Trato: 0 dias"
+autowrap_mode = 2
+
+[node name="SelectCropButton" type="Button" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 48)
+layout_mode = 2
+text = "Cultura: Milho para silagem"
+autowrap_mode = 2
+
+[node name="PrepareSoilButton" type="Button" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 36)
+layout_mode = 2
+disabled = true
+text = "Preparar solo — R$ 800"
+
+[node name="PlantCropButton" type="Button" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 48)
+layout_mode = 2
+disabled = true
+text = "Plantar cultura selecionada"
+autowrap_mode = 2
+
+[node name="HarvestCropButton" type="Button" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 36)
+layout_mode = 2
+disabled = true
+text = "Colher e armazenar"
+
+[node name="UseFeedReserveButton" type="Button" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 48)
+layout_mode = 2
+disabled = true
+text = "Fornecer reserva por 7 dias"
+autowrap_mode = 2
+
+[node name="MarketSeparator" type="HSeparator" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+layout_mode = 2
+
+[node name="MarketTitle" type="Label" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.96, 0.82, 0.4, 1)
+theme_override_font_sizes/font_size = 18
+text = "MERCADO DE ANIMAIS"
+
+[node name="MarketModeLabel" type="Label" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.78, 0.76, 0.65, 1)
+theme_override_font_sizes/font_size = 12
+text = "O QUE DESEJA FAZER?"
+
+[node name="MarketModeSelector" type="OptionButton" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 44)
+layout_mode = 2
+tooltip_text = "Alterne entre comprar novos animais e vender animais do rebanho."
+
+[node name="MarketInfo" type="Label" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 250)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.92, 0.9, 0.78, 1)
+theme_override_font_sizes/font_size = 13
+text = "Cerque a propriedade e instale uma porteira para comprar animais."
+autowrap_mode = 2
+
+[node name="MarketBuyTitle" type="Label" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.96, 0.82, 0.4, 1)
+theme_override_font_sizes/font_size = 15
+text = "COMPRAR ANIMAIS"
+
+[node name="MarketCategorySelectorLabel" type="Label" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.78, 0.76, 0.65, 1)
+theme_override_font_sizes/font_size = 12
+text = "CATEGORIA"
+
+[node name="MarketCategorySelector" type="OptionButton" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 40)
+layout_mode = 2
+tooltip_text = "Escolha a fase produtiva dos animais que entrarão na fazenda."
+
+[node name="BreedSelectorLabel" type="Label" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.78, 0.76, 0.65, 1)
+theme_override_font_sizes/font_size = 12
+text = "RAÇA DO LOTE"
+
+[node name="BreedSelector" type="OptionButton" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 40)
+layout_mode = 2
+tooltip_text = "Todos os animais desta compra receberão a raça selecionada."
+
+[node name="MarketQuantitySelectorLabel" type="Label" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.78, 0.76, 0.65, 1)
+theme_override_font_sizes/font_size = 12
+text = "QUANTIDADE"
+
+[node name="MarketQuantitySelector" type="SpinBox" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 40)
+layout_mode = 2
+min_value = 1.0
+max_value = 20.0
+value = 5.0
+allow_greater = false
+allow_lesser = false
+tooltip_text = "Quantidade de animais que será comprada."
+
+[node name="BuyAnimalsButton" type="Button" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 36)
+layout_mode = 2
+disabled = true
+text = "Confirmar compra"
+tooltip_text = "Confirme depois de revisar valor total, saldo e lotação."
+
+[node name="MarketSellTitle" type="Label" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.96, 0.82, 0.4, 1)
+theme_override_font_sizes/font_size = 15
+text = "VENDER ANIMAIS"
+
+[node name="MarketSaleFilterLabel" type="Label" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.78, 0.76, 0.65, 1)
+theme_override_font_sizes/font_size = 12
+text = "FILTRAR REBANHO"
+
+[node name="MarketSaleFilter" type="OptionButton" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 40)
+layout_mode = 2
+tooltip_text = "Mostre somente os animais da categoria desejada."
+
+[node name="MarketSaleList" type="ItemList" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 190)
+layout_mode = 2
+select_mode = 1
+allow_reselect = true
+tooltip_text = "Clique nos animais que deseja vender. Passe o cursor para ver mais detalhes."
+
+[node name="MarketSelectAllButton" type="Button" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 32)
+layout_mode = 2
+text = "Selecionar todos os exibidos"
+
+[node name="MarketClearSelectionButton" type="Button" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 32)
+layout_mode = 2
+text = "Limpar seleção"
+
+[node name="SellAnimalsButton" type="Button" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 36)
+layout_mode = 2
+disabled = true
+text = "Confirmar venda selecionada"
+tooltip_text = "Venda somente os animais selecionados na lista."
+
+[node name="FinanceSeparator" type="HSeparator" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+layout_mode = 2
+
+[node name="FinanceTitle" type="Label" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.96, 0.82, 0.4, 1)
+theme_override_font_sizes/font_size = 18
+text = "FINANCEIRO"
+
+[node name="FinanceStatus" type="Label" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 112)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.92, 0.9, 0.78, 1)
+theme_override_font_sizes/font_size = 13
+text = "Saldo: R$ 50.000\nCustos separados entre insumos, materiais e mão de obra.\nNenhuma movimentação registrada."
+autowrap_mode = 2
+
+[node name="Content" type="Control" parent="Interface/MainLayout/Body"]
+layout_mode = 2
+size_flags_horizontal = 3
+mouse_filter = 2
+
+[node name="MapFrame" type="PanelContainer" parent="Interface/MainLayout/Body/Content"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+theme_override_styles/panel = SubResource("StyleMapFrame")
+
+[node name="TerrainTooltip" type="PanelContainer" parent="Interface"]
+unique_name_in_owner = true
+visible = false
+offset_right = 252.0
+offset_bottom = 102.0
+mouse_filter = 2
+theme_override_styles/panel = SubResource("StyleFarmCard")
+
+[node name="Margin" type="MarginContainer" parent="Interface/TerrainTooltip"]
+layout_mode = 2
+theme_override_constants/margin_left = 11
+theme_override_constants/margin_top = 8
+theme_override_constants/margin_right = 11
+theme_override_constants/margin_bottom = 8
+
+[node name="TerrainTooltipLabel" type="Label" parent="Interface/TerrainTooltip/Margin"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.94, 0.92, 0.82, 1)
+theme_override_font_sizes/font_size = 12
+text = "ELEVAÇÃO RELATIVA: +0 m\nRelevo: baixada\nSolo: solo de baixada\nUmidade: 0%"
+autowrap_mode = 2
+
+[node name="OfflineReportDialog" type="AcceptDialog" parent="Interface"]
+unique_name_in_owner = true
+title = "RELATÓRIO DA FAZENDA"
+initial_position = 2
+size = Vector2i(520, 380)
+unresizable = true
+theme = ExtResource("3_ui_theme")
+ok_button_text = "Continuar"
