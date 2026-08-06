@@ -4081,7 +4081,7 @@ func _update_sanitary_ui() -> void:
 func _advance_day(silent: bool = false) -> void:
 	current_day += 1
 	day_of_year += 1
-	if day_of_year > _days_in_year(current_year):
+	if day_of_year > CalendarService.days_in_year(current_year):
 		day_of_year = 1
 		current_year += 1
 	_update_daily_weather()
@@ -4094,13 +4094,63 @@ func _advance_day(silent: bool = false) -> void:
 	var reserve_active := has_herd and feeding_plan_days_remaining > 0
 	if reserve_active:
 		feeding_plan_days_remaining -= 1
+	var vegetation_result := _advance_vegetation_day(has_herd, reserve_active)
+	if not has_herd:
+		WaterService.update_pond_levels(pond_level, rainfall_mm, max_temperature_c, soil_daily_runoff)
+		_update_river_level()
+		herd_had_water_today = true
+		if not silent:
+			_refresh_simulation_ui()
+		return
+	var supplement_use := _consume_daily_supplements()
+	if (
+		service_order_message.is_empty()
+		and (bool(supplement_use["mineral"]) or bool(supplement_use["supplement"]))
+	):
+		last_cowboy_activity = "Vaqueiro abasteceu os cochos automaticamente."
+		_update_service_order_ui()
+	_update_water_system()
+	var nutrition_result := _update_herd_nutrition(reserve_active, supplement_use, vegetation_result["grazing_pressure"])
+	var daily_message: String = str(nutrition_result["message"])
+	var heat_message := _apply_daily_heat_stress()
+	if not heat_message.is_empty():
+		daily_message = "%s %s" % [daily_message, heat_message]
+	var needs_warning := _update_animal_needs(nutrition_result["available_forage"])
+	if not needs_warning.is_empty():
+		daily_message = needs_warning
+	if reserve_active:
+		hunger = maxf(hunger - 20.0, 0.0)
+		daily_message = "%s Reserva forrageira fornecida." % daily_message
+	if supplement_use["mineral"]:
+		health = minf(health + 0.2, 100.0)
+	if vegetation_result["grazing_pressure"] > 1.0:
+		daily_message = "%s Superlotação: %d bovinos para capacidade de %d." % [
+			daily_message, herd_size, pasture_capacity[herd_pasture],
+		]
+	if not reproduction_message.is_empty():
+		daily_message = "%s %s" % [daily_message, reproduction_message]
+	var sanitary_message := _advance_sanitary_day()
+	if not sanitary_message.is_empty():
+		daily_message = "%s %s" % [daily_message, sanitary_message]
+	if not service_order_message.is_empty():
+		daily_message = "%s %s" % [daily_message, service_order_message]
+	if not vegetation_result["service_message"].is_empty():
+		vegetation_last_event = vegetation_result["service_message"]
+		daily_message = "%s %s" % [daily_message, vegetation_result["service_message"]]
+	_update_individual_animals_day(average_weight_kg - previous_average_weight)
+	if not silent:
+		_refresh_simulation_ui()
+		_update_herd_status(daily_message)
+		_report_critical_event()
 
+
+func _advance_vegetation_day(has_herd: bool, reserve_active: bool) -> Dictionary:
 	var grazing_pressure := 0.0
-	var vegetation_service_message := ""
+	var service_message := ""
 	for pasture_number in [1, 2]:
 		if not vegetation_manager.has_area(pasture_number):
 			continue
-		var vegetation_result: Dictionary = vegetation_manager.advance_day(
+		var result: Dictionary = vegetation_manager.advance_day(
 			pasture_number,
 			{
 				"rainfall_mm": rainfall_mm,
@@ -4118,14 +4168,14 @@ func _advance_day(silent: bool = false) -> void:
 			}
 		)
 		soil_compaction[pasture_number] = float(
-			vegetation_result.get("soil_compaction", soil_compaction[pasture_number])
+			result.get("soil_compaction", soil_compaction[pasture_number])
 		)
 		if pasture_number == herd_pasture:
-			grazing_pressure = float(vegetation_result.get("grazing_pressure", 0.0))
-		var completed_service := str(vegetation_result.get("intervention_message", ""))
+			grazing_pressure = float(result.get("grazing_pressure", 0.0))
+		var completed_service := str(result.get("intervention_message", ""))
 		if not completed_service.is_empty():
-			vegetation_service_message = completed_service
-			match str(vegetation_result.get("completed_action", "")):
+			service_message = completed_service
+			match str(result.get("completed_action", "")):
 				"fertilize":
 					soil_fertility[pasture_number] = minf(
 						float(soil_fertility[pasture_number]) + 18.0, 100.0
@@ -4141,25 +4191,16 @@ func _advance_day(silent: bool = false) -> void:
 						float(soil_fertility[pasture_number]) + 8.0, 100.0
 					)
 	_sync_legacy_from_vegetation()
+	return {"grazing_pressure": grazing_pressure, "service_message": service_message}
 
-	if not has_herd:
-		_update_pond_levels()
-		_update_river_level()
-		herd_had_water_today = true
-		if not silent:
-			_refresh_simulation_ui()
-		return
 
-	var supplement_use := _consume_daily_supplements()
-	if (
-		service_order_message.is_empty()
-		and (bool(supplement_use["mineral"]) or bool(supplement_use["supplement"]))
-	):
-		last_cowboy_activity = "Vaqueiro abasteceu os cochos automaticamente."
-		_update_service_order_ui()
-	_update_water_system()
+func _update_herd_nutrition(
+	reserve_active: bool,
+	supplement_use: Dictionary,
+	grazing_pressure: float
+) -> Dictionary:
 	var available_forage: float = forage[herd_pasture]
-	var daily_message := "Alimentação adequada."
+	var message := "Alimentação adequada."
 	var quality_factor: float = clampf(
 		(pasture_quality[herd_pasture] / 75.0)
 		* (1.0 - pasture_degradation[herd_pasture] / 120.0),
@@ -4169,55 +4210,21 @@ func _advance_day(silent: bool = false) -> void:
 	var protein_bonus := 0.25 if supplement_use["supplement"] else 0.0
 	if reserve_active:
 		protein_bonus += 0.35
-
 	if available_forage > 60.0:
 		average_weight_kg += 0.7 * quality_factor + protein_bonus
 		body_condition = minf(body_condition + 0.01, 5.0)
 	elif available_forage > 30.0:
 		average_weight_kg += 0.2 * quality_factor + protein_bonus
-		daily_message = "Ganho de peso reduzido."
+		message = "Ganho de peso reduzido."
 	elif available_forage > 15.0:
 		average_weight_kg = maxf(average_weight_kg - 0.3 + protein_bonus, 0.0)
 		body_condition = maxf(body_condition - 0.01, 1.0)
-		daily_message = "Pouca forragem: o lote começou a perder peso."
+		message = "Pouca forragem: o lote começou a perder peso."
 	else:
 		average_weight_kg = maxf(average_weight_kg - 0.8, 0.0)
 		body_condition = maxf(body_condition - 0.03, 1.0)
-		daily_message = "Alerta: pasto crítico e perda de condição corporal."
-
-	var heat_message := _apply_daily_heat_stress()
-	if not heat_message.is_empty():
-		daily_message = "%s %s" % [daily_message, heat_message]
-	var needs_warning := _update_animal_needs(available_forage)
-	if not needs_warning.is_empty():
-		daily_message = needs_warning
-	if reserve_active:
-		hunger = maxf(hunger - 20.0, 0.0)
-		daily_message = "%s Reserva forrageira fornecida." % daily_message
-	if supplement_use["mineral"]:
-		health = minf(health + 0.2, 100.0)
-	if grazing_pressure > 1.0:
-		daily_message = "%s Superlotação: %d bovinos para capacidade de %d." % [
-			daily_message,
-			herd_size,
-			pasture_capacity[herd_pasture],
-		]
-	if not reproduction_message.is_empty():
-		daily_message = "%s %s" % [daily_message, reproduction_message]
-	var sanitary_message := _advance_sanitary_day()
-	if not sanitary_message.is_empty():
-		daily_message = "%s %s" % [daily_message, sanitary_message]
-	if not service_order_message.is_empty():
-		daily_message = "%s %s" % [daily_message, service_order_message]
-	if not vegetation_service_message.is_empty():
-		vegetation_last_event = vegetation_service_message
-		daily_message = "%s %s" % [daily_message, vegetation_service_message]
-
-	_update_individual_animals_day(average_weight_kg - previous_average_weight)
-	if not silent:
-		_refresh_simulation_ui()
-		_update_herd_status(daily_message)
-		_report_critical_event()
+		message = "Alerta: pasto crítico e perda de condição corporal."
+	return {"message": message, "available_forage": available_forage}
 
 
 func _update_individual_animals_day(weight_change: float) -> void:

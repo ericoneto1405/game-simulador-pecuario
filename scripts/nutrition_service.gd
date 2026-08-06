@@ -2,8 +2,50 @@ class_name NutritionService
 
 const DAILY_RESERVE_KG_PER_ANIMAL := 5.0
 const FEEDING_PLAN_DAYS := 7
-const MINERAL_DAILY_KG_PER_ANIMAL := 0.1
+const MINERAL_DAILY_KG_PER_ANIMAL := 0.08
 const SUPPLEMENT_DAILY_KG_PER_ANIMAL := 0.5
+const MINERAL_PACKAGE_KG := 25.0
+const MINERAL_PACKAGE_PRICE := 180
+const SUPPLEMENT_PACKAGE_KG := 100.0
+const SUPPLEMENT_PACKAGE_PRICE := 320
+const SOIL_PREPARATION_COST := 800
+const FORAGE_CROPS := [
+	{
+		"name": "Milho para silagem",
+		"days": 90,
+		"planting_cost": 1200,
+		"yield_kg": 30000.0,
+		"product": "silage",
+	},
+	{
+		"name": "Sorgo para silagem",
+		"days": 80,
+		"planting_cost": 900,
+		"yield_kg": 26000.0,
+		"product": "silage",
+	},
+	{
+		"name": "Capiaçu",
+		"days": 120,
+		"planting_cost": 700,
+		"yield_kg": 35000.0,
+		"product": "fresh_forage",
+	},
+	{
+		"name": "Palma forrageira",
+		"days": 180,
+		"planting_cost": 1000,
+		"yield_kg": 20000.0,
+		"product": "fresh_forage",
+	},
+	{
+		"name": "Capim para feno",
+		"days": 70,
+		"planting_cost": 600,
+		"yield_kg": 8000.0,
+		"product": "hay",
+	},
+]
 
 
 static func total_stored_feed(stored_feed_kg: Dictionary) -> float:

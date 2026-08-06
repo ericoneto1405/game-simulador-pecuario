@@ -1,6 +1,33 @@
 class_name EconomyService
 
 const TRANSACTION_HISTORY_LIMIT := 8
+const STARTING_CASH := 50000
+const PURCHASE_PRICE_PER_ANIMAL := 3000
+const SALE_PRICE_PER_ANIMAL := 2850
+const MARKET_BUY_PRICE_PER_KG := {
+	"female_calves": 12.5,
+	"male_calves": 13.0,
+	"heifers": 10.2,
+	"cows": 8.2,
+	"steers": 10.8,
+	"oxen": 9.6,
+	"bulls": 12.0,
+}
+const MARKET_SELL_PRICE_FACTOR := 0.95
+const DEFAULT_CATTLE_BREED := "nelore"
+const CATTLE_BREEDS := [
+	{"key": "nelore", "name": "Nelore"},
+	{"key": "nelore_pintado", "name": "Nelore Pintado"},
+	{"key": "guzera", "name": "Guzerá"},
+	{"key": "brahman", "name": "Brahman"},
+	{"key": "tabapua", "name": "Tabapuã"},
+	{"key": "sindi", "name": "Sindi"},
+	{"key": "angus", "name": "Angus"},
+	{"key": "hereford", "name": "Hereford"},
+	{"key": "brangus", "name": "Brangus"},
+	{"key": "braford", "name": "Braford"},
+	{"key": "senepol", "name": "Senepol"},
+]
 
 
 static func format_money(value: int) -> String:
