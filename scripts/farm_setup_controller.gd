@@ -756,16 +756,6 @@ func _on_official_time_synchronized() -> void:
 	_schedule_real_time_progress()
 
 
-func _local_datetime_from_server_unix(unix_utc: int) -> Dictionary:
-	return CalendarService.local_datetime_from_server_unix(
-		unix_utc, server_utc_offset_seconds
-	)
-
-
-func _civil_day_number(year: int, month: int, day: int) -> int:
-	return CalendarService.civil_day_number(year, month, day)
-
-
 func _days_between_server_dates(from_unix_utc: int, to_unix_utc: int) -> int:
 	return CalendarService.days_between_server_dates(
 		from_unix_utc, to_unix_utc, server_utc_offset_seconds
@@ -775,9 +765,11 @@ func _days_between_server_dates(from_unix_utc: int, to_unix_utc: int) -> int:
 func _set_calendar_from_server_unix(unix_utc: int) -> void:
 	if unix_utc <= 0:
 		return
-	var local_date := _local_datetime_from_server_unix(unix_utc)
+	var local_date := CalendarService.local_datetime_from_server_unix(
+		unix_utc, server_utc_offset_seconds
+	)
 	current_year = int(local_date["year"])
-	day_of_year = _day_of_year_from_date(
+	day_of_year = CalendarService.day_of_year_from_date(
 		current_year,
 		int(local_date["month"]),
 		int(local_date["day"])
@@ -1463,7 +1455,7 @@ func _handle_free_build_click(world_position: Vector2) -> void:
 	has_pending_structure_position = true
 	finish_construction_button.disabled = false
 	_update_construction_preview(world_position)
-	var structure_cost := _current_single_structure_cost()
+	var structure_cost := ConstructionService.single_structure_cost(int(build_mode))
 	store_status.text = "%s posicionado.\n%s\nConfirme para construir." % [
 		_build_mode_name(build_mode),
 		_format_cost_breakdown(structure_cost, _construction_labor_rate(build_mode)),
@@ -1578,7 +1570,7 @@ func _finish_free_construction() -> void:
 	var type_name := _build_mode_name(build_mode)
 	var points := build_points.duplicate()
 	var selected_mode := build_mode
-	var duration := clampf(3.0 + _fence_length_meters_for_points(points) / 300.0, 4.0, 15.0)
+	var duration := clampf(3.0 + ConstructionService.fence_length_meters(points) / 300.0, 4.0, 15.0)
 	var work_position := _polygon_center(points) if _is_closed_fence(points) else points[points.size() / 2]
 	_start_timed_construction(
 		work_position,
@@ -2015,25 +2007,11 @@ func _reset_build_mode() -> void:
 func _current_fence_cost() -> int:
 	if build_points.size() < 2:
 		return 0
-	var length_meters := _current_fence_length_meters()
-	var rate := _current_fence_rate()
+	var length_meters := ConstructionService.fence_length_meters(build_points)
+	var rate := ConstructionService.fence_rate(int(build_mode))
 	return maxi(ceili(length_meters / 100.0 * rate), 1)
 
 
-func _current_fence_length_meters() -> float:
-	return ConstructionService.fence_length_meters(build_points)
-
-
-func _fence_length_meters_for_points(points: PackedVector2Array) -> float:
-	return ConstructionService.fence_length_meters(points)
-
-
-func _current_fence_rate() -> int:
-	return ConstructionService.fence_rate(int(build_mode))
-
-
-func _current_single_structure_cost() -> int:
-	return ConstructionService.single_structure_cost(int(build_mode))
 
 
 func _construction_labor_rate(selected_mode: BuildMode) -> float:
@@ -2102,7 +2080,7 @@ func _format_cost_breakdown(total_cost: int, labor_rate: float) -> String:
 
 func _update_fence_estimate_status(instruction: String) -> void:
 	store_status.text = "%d m de cerca\n%s\n%s" % [
-		roundi(_current_fence_length_meters()),
+		roundi(ConstructionService.fence_length_meters(build_points)),
 		_format_cost_breakdown(_current_fence_cost(), FENCE_LABOR_RATE),
 		instruction,
 	]
@@ -2130,9 +2108,6 @@ func _update_construction_actions_visibility() -> void:
 	sidebar_margin.offset_bottom = -90.0 if show_actions else 0.0
 
 
-func _fence_color(selected_mode: BuildMode) -> Color:
-	return ConstructionService.fence_color(int(selected_mode))
-
 
 func _create_fence_visual(points: PackedVector2Array, selected_mode: BuildMode) -> Node2D:
 	var fence_visual := Node2D.new()
@@ -2151,8 +2126,8 @@ func _create_fence_visual(points: PackedVector2Array, selected_mode: BuildMode) 
 
 	var wire := Line2D.new()
 	wire.name = "Wire"
-	wire.width = _fence_wire_width(selected_mode)
-	wire.default_color = _fence_color(selected_mode)
+	wire.width = ConstructionService.fence_wire_width(selected_mode)
+	wire.default_color = ConstructionService.fence_color(selected_mode)
 	wire.joint_mode = Line2D.LINE_JOINT_ROUND
 	wire.points = points
 	fence_visual.add_child(wire)
@@ -2178,8 +2153,8 @@ func _create_fence_visual(points: PackedVector2Array, selected_mode: BuildMode) 
 			_create_fence_post(
 				fence_visual,
 				segment_start.lerp(segment_end, factor),
-				_fence_post_radius(selected_mode),
-				_fence_post_color(selected_mode)
+			ConstructionService.fence_post_radius(selected_mode),
+			ConstructionService.fence_post_color(selected_mode)
 			)
 
 	var corner_count := points.size()
@@ -2213,17 +2188,6 @@ func _create_fence_post(
 	return post
 
 
-func _fence_wire_width(selected_mode: BuildMode) -> float:
-	return ConstructionService.fence_wire_width(int(selected_mode))
-
-
-func _fence_post_radius(selected_mode: BuildMode) -> float:
-	return ConstructionService.fence_post_radius(int(selected_mode))
-
-
-func _fence_post_color(selected_mode: BuildMode) -> Color:
-	return ConstructionService.fence_post_color(int(selected_mode))
-
 
 func _build_mode_name(selected_mode: BuildMode) -> String:
 	return ConstructionService.build_mode_name(int(selected_mode))
@@ -2254,7 +2218,7 @@ func _validate_free_scale_position(world_position: Vector2) -> bool:
 
 
 func _place_free_gate(world_position: Vector2) -> void:
-	var nearest := _nearest_fence_position(world_position)
+	var nearest := ConstructionService.nearest_fence_position(world_position, built_structures)
 	if nearest.is_empty() or float(nearest["distance"]) > 70.0:
 		store_status.text = "A porteira precisa ser instalada sobre uma cerca."
 		return
@@ -2396,12 +2360,6 @@ func _rectangle_points(rect: Rect2) -> PackedVector2Array:
 	return ConstructionService.rectangle_points(rect)
 
 
-func _nearest_fence_position(world_position: Vector2) -> Dictionary:
-	return ConstructionService.nearest_fence_position(world_position, built_structures)
-
-
-func _closest_point_on_segment(point: Vector2, start: Vector2, end: Vector2) -> Vector2:
-	return ConstructionService.closest_point_on_segment(point, start, end)
 
 
 func _is_closed_fence(points: PackedVector2Array) -> bool:
@@ -3431,7 +3389,7 @@ func _distance_to_line_points(point: Vector2, points: PackedVector2Array) -> flo
 	for point_index in range(1, points.size()):
 		shortest_distance = minf(
 			shortest_distance,
-			point.distance_to(_closest_point_on_segment(
+			point.distance_to(ConstructionService.closest_point_on_segment(
 				point,
 				points[point_index - 1],
 				points[point_index]
@@ -3606,7 +3564,9 @@ func _advance_reproduction_day() -> String:
 			newborn_breeds.append(_normalize_breed(str(animal.get("breed", DEFAULT_CATTLE_BREED))))
 	if newborn_breeds.is_empty():
 		newborn_breeds.append(DEFAULT_CATTLE_BREED)
-	offspring_genetics = _calculate_offspring_genetics()
+	offspring_genetics = ReproductionService.calculate_offspring_genetics(
+		herd_genetics, breeding_method, current_year
+	)
 	for animal in herd_animals:
 		if bool(animal.get("pregnant", false)):
 			animal["pregnant"] = false
@@ -3651,11 +3611,6 @@ func _advance_reproduction_day() -> String:
 
 	return "O parto foi adiado por falta de capacidade na fazenda."
 
-
-func _calculate_offspring_genetics() -> Dictionary:
-	return ReproductionService.calculate_offspring_genetics(
-		herd_genetics, breeding_method, current_year
-	)
 
 
 func _is_breeding_season() -> bool:
@@ -3779,7 +3734,7 @@ func _rebuild_herd_categories() -> void:
 	}
 	var weight_total := 0.0
 	for animal in herd_animals:
-		var category := _category_for_animal(animal)
+		var category := AnimalHealthService.category_for_animal(animal, WEANING_AGE_DAYS)
 		animal["category"] = category
 		herd_categories[category] = int(herd_categories[category]) + 1
 		weight_total += float(animal.get("weight_kg", average_weight_kg))
@@ -3788,24 +3743,10 @@ func _rebuild_herd_categories() -> void:
 		average_weight_kg = weight_total / float(herd_size)
 
 
-func _category_for_animal(animal: Dictionary) -> String:
-	return AnimalHealthService.category_for_animal(animal, WEANING_AGE_DAYS)
-
 
 func _update_reproduction_ui() -> void:
 	_reproduction_ui.update(_build_base_state())
 
-
-func _daily_parasite_increase(parasite_resistance: float) -> float:
-	return AnimalHealthService.daily_parasite_increase(
-		parasite_resistance,
-		rainfall_mm,
-		float(soil_moisture[herd_pasture]),
-		float(pasture_degradation[herd_pasture]),
-		herd_size,
-		int(pasture_capacity[herd_pasture]),
-		parasite_treatment_days_remaining
-	)
 
 
 func _advance_sanitary_day() -> String:
@@ -3825,7 +3766,15 @@ func _advance_sanitary_day() -> String:
 		)
 		var parasite_load := clampf(
 			float(animal.get("parasite_load", 0.0))
-			+ _daily_parasite_increase(parasite_resistance),
+			+ AnimalHealthService.daily_parasite_increase(
+				parasite_resistance,
+				rainfall_mm,
+				float(soil_moisture[herd_pasture]),
+				float(pasture_degradation[herd_pasture]),
+				herd_size,
+				int(pasture_capacity[herd_pasture]),
+				parasite_treatment_days_remaining
+			),
 			0.0,
 			100.0
 		)
@@ -3880,14 +3829,6 @@ func _advance_sanitary_day() -> String:
 	return event_message
 
 
-func _sanitary_service_is_available(action: String) -> bool:
-	return AnimalHealthService.sanitary_service_is_available(
-		action, herd_animals,
-		parasite_treatment_days_remaining,
-		clinical_medication_days_remaining,
-		vitamin_supplement_days_remaining
-	)
-
 
 func _request_sanitary_service(action: String, title: String) -> void:
 	if not herd_created or herd_animals.is_empty():
@@ -3898,7 +3839,12 @@ func _request_sanitary_service(action: String, title: String) -> void:
 		sanitary_last_event = "O vaqueiro já está executando outro manejo."
 		_update_sanitary_ui()
 		return
-	if not _sanitary_service_is_available(action):
+	if not AnimalHealthService.sanitary_service_is_available(
+		action, herd_animals,
+		parasite_treatment_days_remaining,
+		clinical_medication_days_remaining,
+		vitamin_supplement_days_remaining
+	):
 		sanitary_last_event = "Não há bovinos elegíveis para este manejo."
 		_update_sanitary_ui()
 		return
@@ -4348,10 +4294,6 @@ func _update_herd_status(message: String) -> void:
 	_herd_ui.update_status(state)
 
 
-func _body_condition_label() -> String:
-	return AnimalHealthService.body_condition_label(body_condition)
-
-
 func _current_month() -> int:
 	return _calendar_month_and_day().x
 
@@ -4368,32 +4310,12 @@ func _formatted_date() -> String:
 	]
 
 
-func _is_leap_year(year: int) -> bool:
-	return CalendarService.is_leap_year(year)
-
-
 func _days_in_year(year: int) -> int:
 	return CalendarService.days_in_year(year)
 
 
-func _month_length(year: int, month: int) -> int:
-	return CalendarService.month_length(year, month)
-
-
-func _day_of_year_from_date(year: int, month: int, day: int) -> int:
-	return CalendarService.day_of_year_from_date(year, month, day)
-
-
 func _calendar_month_and_day() -> Vector2i:
 	return CalendarService.calendar_month_and_day(day_of_year, current_year)
-
-
-func _migrate_legacy_day_of_year(legacy_day_of_year: int) -> int:
-	return CalendarService.migrate_legacy_day_of_year(legacy_day_of_year)
-
-
-func _climate_phase() -> String:
-	return ClimateService.climate_phase(_current_month())
 
 
 func _climate_phase_short() -> String:
@@ -4405,7 +4327,7 @@ func _climate_phase_color() -> Color:
 
 
 func _climate_phase_icon() -> Texture2D:
-	match _climate_phase():
+	match ClimateService.climate_phase(_current_month()):
 		"Período chuvoso":
 			return CLIMATE_ICON_RAINY
 		"Transição":
@@ -4431,10 +4353,6 @@ func _update_daily_weather() -> void:
 	)
 
 
-func _calculate_heat_stress(temperature_c: float, heat_adaptation: float) -> float:
-	return ClimateService.calculate_heat_stress(temperature_c, heat_adaptation)
-
-
 func _apply_daily_heat_stress() -> String:
 	if not herd_created or heat_stress <= 15.0:
 		return ""
@@ -4446,16 +4364,6 @@ func _apply_daily_heat_stress() -> String:
 		body_condition = maxf(body_condition - 0.01, 1.0)
 		return "Calor intenso reduziu o desempenho do lote."
 	return "Calor moderado reduziu o ganho de peso."
-
-
-func _daily_pasture_growth() -> float:
-	return ClimateService.daily_pasture_growth(
-		_current_month(), rainfall_mm, consecutive_dry_days, max_temperature_c
-	)
-
-
-func _soil_profile_value(pasture_number: int, lowland_value: float, highland_value: float) -> float:
-	return SoilService.profile_value(pasture_number, lowland_value, highland_value)
 
 
 func _advance_soil_day() -> void:
@@ -4487,13 +4395,6 @@ func _soil_growth_factor(pasture_number: int) -> float:
 		pasture_number,
 		float(soil_moisture[pasture_number]),
 		float(soil_fertility[pasture_number])
-	)
-
-
-func _soil_drought_factor(pasture_number: int) -> float:
-	return SoilService.drought_factor(
-		pasture_number,
-		float(soil_moisture[pasture_number])
 	)
 
 
@@ -4658,7 +4559,9 @@ func _harvest_crop() -> void:
 
 	var crop: Dictionary = FORAGE_CROPS[selected_crop_index]
 	var product := str(crop["product"])
-	var yield_factor := _crop_soil_yield_factor()
+	var yield_factor := NutritionService.crop_soil_yield_factor(
+		float(soil_fertility[1]), float(soil_moisture[1]), float(soil_erosion[1])
+	)
 	stored_feed_kg[product] = (
 		float(stored_feed_kg[product]) + float(crop["yield_kg"]) * yield_factor
 	)
@@ -4667,11 +4570,6 @@ func _harvest_crop() -> void:
 	forage_field.color = FIELD_IDLE_COLOR
 	_update_agriculture_ui()
 
-
-func _crop_soil_yield_factor() -> float:
-	return NutritionService.crop_soil_yield_factor(
-		float(soil_fertility[1]), float(soil_moisture[1]), float(soil_erosion[1])
-	)
 
 
 func _activate_feed_reserve() -> void:
@@ -4683,26 +4581,20 @@ func _activate_feed_reserve() -> void:
 		return
 
 	var required_feed := herd_size * DAILY_RESERVE_KG_PER_ANIMAL * FEEDING_PLAN_DAYS
-	if _total_stored_feed() < required_feed:
+	if NutritionService.total_stored_feed(stored_feed_kg) < required_feed:
 		agriculture_status.text = "Estoque insuficiente. Necessário: %.0f kg." % required_feed
 		return
 
-	_consume_stored_feed(required_feed)
+	stored_feed_kg = NutritionService.consume_stored_feed(stored_feed_kg, required_feed)
 	feeding_plan_days_remaining = FEEDING_PLAN_DAYS
 	_update_agriculture_ui()
 
 
-func _consume_stored_feed(required_feed: float) -> void:
-	stored_feed_kg = NutritionService.consume_stored_feed(stored_feed_kg, required_feed)
-
-
-func _total_stored_feed() -> float:
-	return NutritionService.total_stored_feed(stored_feed_kg)
 
 
 func _update_agriculture_ui() -> void:
 	var state := _build_base_state()
-	state["total_stored_feed"] = _total_stored_feed()
+	state["total_stored_feed"] = NutritionService.total_stored_feed(stored_feed_kg)
 	_agriculture_ui.update(state, FORAGE_CROPS)
 
 
@@ -5262,7 +5154,7 @@ func _restore_saved_game(save_data: Dictionary) -> void:
 	current_year = maxi(int(save_data.get("current_year", 1)), 1)
 	var saved_day_of_year := int(save_data.get("day_of_year", 301))
 	day_of_year = (
-		_migrate_legacy_day_of_year(saved_day_of_year)
+		CalendarService.migrate_legacy_day_of_year(saved_day_of_year)
 		if save_version < CALENDAR_365_SAVE_VERSION
 		else clampi(saved_day_of_year, 1, _days_in_year(current_year))
 	)

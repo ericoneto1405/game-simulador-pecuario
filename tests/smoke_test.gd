@@ -428,7 +428,7 @@ func _run() -> void:
 		"O calendário oficial deve respeitar anos bissextos."
 	)
 	_check(
-		main_scene.call("_migrate_legacy_day_of_year", 301) == 305,
+		CalendarService.migrate_legacy_day_of_year(301) == 305,
 		"Partidas do calendário antigo devem preservar a data aproximada."
 	)
 	var official_time_payload := {
@@ -485,8 +485,8 @@ func _run() -> void:
 		"Chuva, infiltração e relevo devem alterar a umidade e o escoamento."
 	)
 	_check(
-		main_scene.call("_soil_growth_factor", 1)
-		> main_scene.call("_soil_growth_factor", 2),
+		SoilService.growth_factor(1, float(main_scene.get("soil_moisture")[1]), float(main_scene.get("soil_fertility")[1]))
+		> SoilService.growth_factor(2, float(main_scene.get("soil_moisture")[2]), float(main_scene.get("soil_fertility")[2])),
 		"O solo de baixada deve favorecer mais o crescimento que a área alta pedregosa."
 	)
 	_check(
@@ -872,17 +872,33 @@ func _run() -> void:
 	var aging_steer: Dictionary = main_scene.call("_create_individual_animal", "steers")
 	aging_steer["age_days"] = 730
 	_check(
-		main_scene.call("_category_for_animal", aging_steer) == "oxen",
+		AnimalHealthService.category_for_animal(aging_steer, main_scene.get("WEANING_AGE_DAYS")) == "oxen",
 		"O garrote deve passar para a categoria Boi conforme a idade."
 	)
 	_check(
-		main_scene.call("_calculate_heat_stress", 40.0, 90.0)
-		< main_scene.call("_calculate_heat_stress", 40.0, 30.0),
+		ClimateService.calculate_heat_stress(40.0, 90.0)
+		< ClimateService.calculate_heat_stress(40.0, 30.0),
 		"A adaptação genética ao calor deve reduzir o estresse térmico."
 	)
 	_check(
-		main_scene.call("_daily_parasite_increase", 90.0)
-		< main_scene.call("_daily_parasite_increase", 30.0),
+		AnimalHealthService.daily_parasite_increase(
+			90.0,
+			float(main_scene.get("rainfall_mm")),
+			float(main_scene.get("soil_moisture")[main_scene.get("herd_pasture")]),
+			float(main_scene.get("pasture_degradation")[main_scene.get("herd_pasture")]),
+			int(main_scene.get("herd_size")),
+			int(main_scene.get("pasture_capacity")[main_scene.get("herd_pasture")]),
+			int(main_scene.get("parasite_treatment_days_remaining"))
+		)
+		< AnimalHealthService.daily_parasite_increase(
+			30.0,
+			float(main_scene.get("rainfall_mm")),
+			float(main_scene.get("soil_moisture")[main_scene.get("herd_pasture")]),
+			float(main_scene.get("pasture_degradation")[main_scene.get("herd_pasture")]),
+			int(main_scene.get("herd_size")),
+			int(main_scene.get("pasture_capacity")[main_scene.get("herd_pasture")]),
+			int(main_scene.get("parasite_treatment_days_remaining"))
+		),
 		"A resistência genética deve reduzir o avanço dos parasitas."
 	)
 	var breed_keys := [
@@ -1131,7 +1147,7 @@ func _run() -> void:
 		"Desenhar uma cerca não deve cobrar antes da confirmação."
 	)
 	_check(
-		roundi(free_build_scene.call("_current_fence_length_meters")) == 1744
+		roundi(ConstructionService.fence_length_meters(free_build_scene.get("build_points"))) == 1744
 		and "m de cerca" in free_build_scene.get("store_status").text,
 		"A Loja Rural deve calcular o comprimento da cerca em metros reais."
 	)
