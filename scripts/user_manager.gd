@@ -25,12 +25,18 @@ func _load_users() -> Dictionary:
 	return parsed if parsed is Dictionary else {}
 
 
-func _save_users(users: Dictionary) -> void:
+func _save_users(users: Dictionary) -> String:
+	var base := USERS_PATH.get_base_dir()
+	if not base.is_empty():
+		DirAccess.make_dir_recursive_absolute(base)
 	var f := FileAccess.open(USERS_PATH, FileAccess.WRITE)
 	if f == null:
-		return
+		var err := FileAccess.get_open_error()
+		push_warning("UserManager: falha ao salvar users.json (erro %d)" % err)
+		return "Erro ao salvar dados (código %d)." % err
 	f.store_string(JSON.stringify(users))
 	f.close()
+	return ""
 
 
 func register_user(username: String, password: String) -> String:
@@ -43,7 +49,9 @@ func register_user(username: String, password: String) -> String:
 	if users.has(username):
 		return "Usuário já existe."
 	users[username] = {"password": _hash_password(password)}
-	_save_users(users)
+	var save_err := _save_users(users)
+	if not save_err.is_empty():
+		return save_err
 	DirAccess.make_dir_recursive_absolute(_user_saves_dir(username))
 	return ""
 
