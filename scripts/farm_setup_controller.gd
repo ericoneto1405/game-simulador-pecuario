@@ -30,8 +30,8 @@ const HORIZONTAL_MAX := 1050.0
 const VERTICAL_MIN := 950.0
 const VERTICAL_MAX := 2150.0
 const GATE_LENGTH := 24.0
-const SAVE_PATH := "user://fazenda_save.json"
-const SAVE_VERSION := 18
+var save_path: String
+const SAVE_VERSION := 19
 const CALENDAR_365_SAVE_VERSION := 15
 const SERVER_TIME_SYNC_INTERVAL_SECONDS := 300.0
 const AUTO_SAVE_INTERVAL_SECONDS := 60.0
@@ -81,6 +81,8 @@ const VITAMIN_SUPPLEMENT_COST_PER_ANIMAL := 15
 const VITAMIN_SUPPLEMENT_DAYS := 30
 const GESTATION_DAYS := 285
 const WEANING_AGE_DAYS := 210
+const WEANING_WEIGHT_KG := 210.0
+const FIRST_BREEDING_WEIGHT_KG := 300.0
 const BARBED_FENCE_COST_PER_100 := 120
 const SMOOTH_FENCE_COST_PER_100 := 180
 const ELECTRIC_FENCE_COST_PER_100 := 250
@@ -221,13 +223,15 @@ var farm_visual_boundary := PackedVector2Array([
 @onready var gate_install_button: Button = %GateInstallButton
 @onready var herd_status: Label = %HerdStatus
 @onready var herd_selection_info: Label = %HerdSelectionInfo
+@onready var rebanho_hint: Label = %RebanhoHint
+@onready var rebanho_list: ItemList = %RebanhoList
+@onready var rebanho_detail_label: RichTextLabel = %RebanhoDetailLabel
 @onready var select_herd_button: Button = %SelectHerdButton
 @onready var transfer_herd_button: Button = %TransferHerdButton
 @onready var service_order_status: Label = %ServiceOrderStatus
 @onready var reproduction_status: Label = %ReproductionStatus
 @onready var natural_breeding_button: Button = %NaturalBreedingButton
 @onready var insemination_button: Button = %InseminationButton
-@onready var select_genetics_button: Button = %SelectGeneticsButton
 @onready var sanitary_status: Label = %SanitaryStatus
 @onready var parasite_treatment_button: Button = %ParasiteTreatmentButton
 @onready var clinical_medication_button: Button = %ClinicalMedicationButton
@@ -390,7 +394,6 @@ var herd_genetics := {
 	"weight_gain": 70.0,
 	"maternal_ability": 68.0,
 }
-var offspring_genetics: Dictionary = {}
 var pregnant_females := 0
 var gestation_days_remaining := 0
 var calf_age_days := -1
@@ -450,9 +453,20 @@ var selected_farm_pasture := 1
 var terrain_info_enabled := false
 var vegetation_manager := VegetationManagerClass.new()
 var vegetation_last_event := "Vegetação acompanhada diariamente."
+var _current_lod_level: int = -1
+var _visual_season_factor: float = -1.0
+var _visual_condition: Dictionary = {}
+var native_vegetation_cache: Dictionary = {}
+var pasture_grass_layer: Node2D = null
+var pasture_grass_cache: Dictionary = {}
+var caatinga_vegetation_layer: Node2D = null
 
 
 func _ready() -> void:
+	if UserManager.current_slot >= 1:
+		save_path = UserManager.get_slot_path(UserManager.current_slot)
+	else:
+		save_path = "user://fazenda_save.json"
 	perimeter_button.pressed.connect(_build_perimeter)
 	horizontal_button.pressed.connect(_start_horizontal_division)
 	vertical_button.pressed.connect(_start_vertical_division)
@@ -460,9 +474,9 @@ func _ready() -> void:
 	gate_install_button.pressed.connect(_start_gate_placement)
 	select_herd_button.pressed.connect(_select_herd_lot)
 	transfer_herd_button.pressed.connect(_transfer_herd)
+	rebanho_list.item_selected.connect(_on_rebanho_item_selected)
 	natural_breeding_button.pressed.connect(_start_natural_breeding)
 	insemination_button.pressed.connect(_start_artificial_insemination)
-	select_genetics_button.pressed.connect(_select_offspring_genetics)
 	parasite_treatment_button.pressed.connect(
 		_request_sanitary_service.bind("parasite", "Controle parasitário")
 	)
@@ -692,7 +706,7 @@ func _update_server_clock(delta: float) -> void:
 func _on_official_time_synchronized() -> void:
 	if not startup_save_checked:
 		startup_save_checked = true
-		if FileAccess.file_exists(SAVE_PATH):
+		if FileAccess.file_exists(save_path):
 			_load_game(false)
 			return
 		_set_calendar_from_server_unix(_current_server_unix_utc())
@@ -876,6 +890,7 @@ func _show_module(module_name: String) -> void:
 	elif module_name == "herd":
 		_update_empty_herd_guidance()
 		_update_transfer_herd_action()
+		_update_rebanho_list()
 		_update_sanitary_ui()
 		_update_service_order_ui()
 	elif module_name == "farm":
@@ -935,10 +950,13 @@ func _show_module(module_name: String) -> void:
 		"herd": [
 			"HerdSeparator", "HerdTitle", "HerdStatus", "HerdSelectionInfo",
 			"SelectHerdButton",
-			"TransferHerdButton", "ReproductionSeparator",
+			"TransferHerdButton",
+			"RebanhoSeparator", "RebanhoTitle", "RebanhoHint",
+			"RebanhoList", "RebanhoDetailLabel",
+			"ReproductionSeparator",
 			"ServiceOrderSeparator", "ServiceOrderTitle", "ServiceOrderStatus",
 			"ReproductionTitle", "ReproductionStatus", "NaturalBreedingButton",
-			"InseminationButton", "SelectGeneticsButton",
+			"InseminationButton",
 			"SanitarySeparator", "SanitaryTitle", "SanitaryStatus",
 			"SanitaryMedicinesLabel", "ParasiteTreatmentButton",
 			"ClinicalMedicationButton", "SanitaryVaccinesLabel",
@@ -1102,6 +1120,80 @@ func _update_transfer_herd_action() -> void:
 	transfer_herd_button.text = "Transferir para Pasto %d" % (
 		2 if herd_pasture == 1 else 1
 	)
+
+
+func _update_rebanho_list() -> void:
+	rebanho_list.clear()
+	rebanho_detail_label.clear()
+	if not herd_created or herd_animals.is_empty():
+		rebanho_hint.text = "Nenhum animal registrado."
+		return
+	rebanho_hint.text = "%d animais no rebanho." % herd_animals.size()
+	var category_names := {
+		"female_calves": "Bezerra",
+		"male_calves": "Bezerro",
+		"heifers": "Novilha",
+		"cows": "Vaca",
+		"steers": "Garrote",
+		"oxen": "Boi",
+		"bulls": "Touro",
+	}
+	for animal in herd_animals:
+		var cat := str(animal.get("category", ""))
+		var cat_display: String = category_names.get(cat, cat)
+		var breed_name := _breed_display_name(str(animal.get("breed", DEFAULT_CATTLE_BREED)))
+		var w_kg := float(animal.get("weight_kg", 0.0))
+		var hp := int(animal.get("health", 100.0))
+		var destiny := str(animal.get("destiny", "unassigned"))
+		rebanho_list.add_item(
+			"%s | %s | %s | %.0f kg | %d%% | %s" % [
+				str(animal.get("id", "?")),
+				cat_display,
+				breed_name,
+				w_kg,
+				hp,
+				destiny,
+			]
+		)
+
+
+func _on_rebanho_item_selected(index: int) -> void:
+	if index < 0 or index >= herd_animals.size():
+		return
+	var animal: Dictionary = herd_animals[index]
+	var category_names := {
+		"female_calves": "Bezerra",
+		"male_calves": "Bezerro",
+		"heifers": "Novilha",
+		"cows": "Vaca",
+		"steers": "Garrote",
+		"oxen": "Boi",
+		"bulls": "Touro",
+	}
+	var cat := str(animal.get("category", ""))
+	var breed_name := _breed_display_name(str(animal.get("breed", DEFAULT_CATTLE_BREED)))
+	var w_kg := float(animal.get("weight_kg", 0.0))
+	var hp := int(animal.get("health", 100.0))
+	var age := int(animal.get("age_days", 0))
+	var destiny := str(animal.get("destiny", "unassigned"))
+	var pregnant_text := "Sim (%d dias)" % int(animal.get("gestation_days", 0)) if bool(animal.get("pregnant", false)) else "Não"
+	var g: Dictionary = animal.get("genetics", {})
+	var lines := "[b]%s — %s[/b]\n" % [str(animal.get("id", "?")), category_names.get(cat, cat)]
+	lines += "Raça: %s | Sexo: %s\n" % [breed_name, "Fêmea" if animal.get("sex", "") == "female" else "Macho"]
+	lines += "Idade: %d dias | Peso: %.1f kg\n" % [age, w_kg]
+	lines += "Saúde: %d%% | Destino: %s\n" % [hp, destiny]
+	lines += "Gestante: %s\n" % pregnant_text
+	lines += "\n[b]Genética:[/b]\n"
+	lines += "Fertilidade: %d | Parto: %d | Materna: %d\n" % [
+		roundi(float(g.get("fertility", 0))), roundi(float(g.get("calving_ease", 0))),
+		roundi(float(g.get("maternal_ability", 0))),
+	]
+	lines += "Calor: %d | Parasitas: %d | Ganho: %d" % [
+		roundi(float(g.get("heat_adaptation", 0))), roundi(float(g.get("parasite_resistance", 0))),
+		roundi(float(g.get("weight_gain", 0))),
+	]
+	rebanho_detail_label.clear()
+	rebanho_detail_label.append_text(lines)
 
 
 func _update_farm_ui() -> void:
@@ -3626,11 +3718,9 @@ func _can_start_breeding() -> bool:
 	if calf_age_days >= 0:
 		reproduction_status.text = "Aguarde a desmama do lote atual de bezerros."
 		return false
-	if int(herd_categories["cows"]) < 1:
-		reproduction_status.text = "Não há vacas aptas para reprodução."
-		return false
-	if not _is_breeding_season():
-		reproduction_status.text = "A estação de monta ocorre de novembro a abril."
+	var eligible := _eligible_breeding_females()
+	if eligible.is_empty():
+		reproduction_status.text = "Não há fêmeas aptas para reprodução."
 		return false
 	if body_condition < 2.5 or health < 60.0:
 		reproduction_status.text = "Condição corporal ou saúde insuficiente para a reprodução."
@@ -3638,24 +3728,43 @@ func _can_start_breeding() -> bool:
 	return true
 
 
+func _eligible_breeding_females() -> Array:
+	var eligible: Array = []
+	for animal in herd_animals:
+		var cat := str(animal.get("category", ""))
+		if cat == "cows":
+			eligible.append(animal)
+		elif cat == "heifers":
+			var w_kg := float(animal.get("weight_kg", 0.0))
+			if w_kg >= FIRST_BREEDING_WEIGHT_KG:
+				eligible.append(animal)
+	return eligible
+
+
 func _start_breeding_cycle(method: String, fertility_bonus: float) -> void:
-	var cows := int(herd_categories["cows"])
+	var eligible := _eligible_breeding_females()
+	var eligible_count := eligible.size()
+	if eligible_count == 0:
+		return
 	var condition_adjustment := (body_condition - 3.0) * 8.0
 	var conception_rate := clampf(
 		float(herd_genetics["fertility"]) + fertility_bonus + condition_adjustment,
 		35.0,
 		95.0
 	)
-	pregnant_females = clampi(roundi(cows * conception_rate / 100.0), 1, cows)
+	pregnant_females = clampi(roundi(eligible_count * conception_rate / 100.0), 1, eligible_count)
 	gestation_days_remaining = GESTATION_DAYS
 	breeding_method = method
 	var pregnancies_to_assign := pregnant_females
 	for animal in herd_animals:
-		var is_breeding_cow := str(animal.get("category", "")) == "cows"
-		animal["pregnant"] = is_breeding_cow and pregnancies_to_assign > 0
-		animal["gestation_days"] = GESTATION_DAYS if bool(animal["pregnant"]) else 0
-		if bool(animal["pregnant"]):
-			pregnancies_to_assign -= 1
+		animal["pregnant"] = false
+		animal["gestation_days"] = 0
+	for animal in eligible:
+		if pregnancies_to_assign <= 0:
+			break
+		animal["pregnant"] = true
+		animal["gestation_days"] = GESTATION_DAYS
+		pregnancies_to_assign -= 1
 	_update_reproduction_ui()
 
 
@@ -3664,15 +3773,25 @@ func _advance_reproduction_day() -> String:
 
 	if calf_age_days >= 0:
 		calf_age_days += 1
-		if calf_age_days >= WEANING_AGE_DAYS:
-			var females := int(herd_categories["female_calves"])
-			var males := int(herd_categories["male_calves"])
-			for animal in herd_animals:
-				if str(animal.get("category", "")) in ["female_calves", "male_calves"]:
-					animal["age_days"] = WEANING_AGE_DAYS
-			calf_age_days = -1
+		var weaned_females := 0
+		var weaned_males := 0
+		for animal in herd_animals:
+			var cat := str(animal.get("category", ""))
+			if cat not in ["female_calves", "male_calves"]:
+				continue
+			var w_kg := float(animal.get("weight_kg", 0.0))
+			var age_d := int(animal.get("age_days", 0))
+			if w_kg >= WEANING_WEIGHT_KG or age_d >= WEANING_AGE_DAYS:
+				animal["age_days"] = maxi(age_d, WEANING_AGE_DAYS)
+				if cat == "female_calves":
+					weaned_females += 1
+				else:
+					weaned_males += 1
+		if weaned_females + weaned_males > 0:
 			_sync_herd_size()
-			event_message = "Desmama concluída: %d fêmeas e %d machos." % [females, males]
+			event_message = "Desmama: %d fêmeas e %d machos." % [weaned_females, weaned_males]
+		if int(herd_categories["female_calves"]) + int(herd_categories["male_calves"]) == 0:
+			calf_age_days = -1
 
 	if pregnant_females <= 0:
 		return event_message
@@ -3693,7 +3812,6 @@ func _advance_reproduction_day() -> String:
 			newborn_breeds.append(_normalize_breed(str(animal.get("breed", DEFAULT_CATTLE_BREED))))
 	if newborn_breeds.is_empty():
 		newborn_breeds.append(DEFAULT_CATTLE_BREED)
-	offspring_genetics = _calculate_offspring_genetics()
 	for animal in herd_animals:
 		if bool(animal.get("pregnant", false)):
 			animal["pregnant"] = false
@@ -3702,22 +3820,14 @@ func _advance_reproduction_day() -> String:
 	var newborn_index := 0
 	for _female_index in range(female_births):
 		var calf_breed := newborn_breeds[newborn_index % newborn_breeds.size()]
-		var female_calf := _create_individual_animal(
-			"female_calves",
-			offspring_genetics,
-			calf_breed
-		)
+		var female_calf := _create_individual_animal("female_calves", {}, calf_breed)
 		female_calf["age_days"] = 0
 		female_calf["weight_kg"] = 32.0
 		herd_animals.append(female_calf)
 		newborn_index += 1
 	for _male_index in range(male_births):
 		var calf_breed := newborn_breeds[newborn_index % newborn_breeds.size()]
-		var male_calf := _create_individual_animal(
-			"male_calves",
-			offspring_genetics,
-			calf_breed
-		)
+		var male_calf := _create_individual_animal("male_calves", {}, calf_breed)
 		male_calf["age_days"] = 0
 		male_calf["weight_kg"] = 34.0
 		herd_animals.append(male_calf)
@@ -3739,59 +3849,6 @@ func _advance_reproduction_day() -> String:
 	return "O parto foi adiado por falta de capacidade na fazenda."
 
 
-func _calculate_offspring_genetics() -> Dictionary:
-	var sire_genetics := {
-		"fertility": 84.0,
-		"calving_ease": 88.0,
-		"heat_adaptation": 84.0,
-		"parasite_resistance": 78.0,
-		"weight_gain": 76.0,
-		"maternal_ability": 70.0,
-	}
-	if breeding_method == "Inseminação artificial":
-		sire_genetics = {
-			"fertility": 88.0,
-			"calving_ease": 90.0,
-			"heat_adaptation": 76.0,
-			"parasite_resistance": 70.0,
-			"weight_gain": 88.0,
-			"maternal_ability": 78.0,
-		}
-
-	var inherited := {}
-	var natural_variation := float((current_year % 5) - 2)
-	for genetic_key in herd_genetics:
-		inherited[genetic_key] = clampf(
-			(
-				float(herd_genetics[genetic_key])
-				+ float(sire_genetics[genetic_key])
-			) / 2.0
-			+ natural_variation,
-			0.0,
-			100.0
-		)
-	return inherited
-
-
-func _is_breeding_season() -> bool:
-	return _current_month() in [11, 12, 1, 2, 3, 4]
-
-
-func _select_offspring_genetics() -> void:
-	if offspring_genetics.is_empty() or calf_age_days >= 0:
-		reproduction_status.text = "A seleção genética exige descendentes já desmamados."
-		return
-
-	for genetic_key in herd_genetics:
-		herd_genetics[genetic_key] = (
-			float(herd_genetics[genetic_key]) * 0.75
-			+ float(offspring_genetics[genetic_key]) * 0.25
-		)
-	offspring_genetics = {}
-	_update_reproduction_ui()
-	reproduction_status.text += "\nGenética dos jovens incorporada ao rebanho."
-
-
 func _sync_herd_size() -> void:
 	if herd_created or not herd_animals.is_empty():
 		_rebuild_herd_categories()
@@ -3799,6 +3856,24 @@ func _sync_herd_size() -> void:
 	herd_size = 0
 	for category in herd_categories:
 		herd_size += int(herd_categories[category])
+
+
+func calculate_herd_genetics_from_animals() -> void:
+	var herd_animal_list: Array = herd_animals.filter(
+		func(a: Dictionary) -> bool: return str(a.get("destiny", "")) == "herd"
+	)
+	if herd_animal_list.is_empty():
+		return
+	var counts := {}
+	for genetic_key in herd_genetics:
+		counts[genetic_key] = 0.0
+	for animal in herd_animal_list:
+		var g: Dictionary = animal.get("genetics", {})
+		for genetic_key in herd_genetics:
+			counts[genetic_key] += float(g.get(genetic_key, herd_genetics[genetic_key]))
+	var n := float(herd_animal_list.size())
+	for genetic_key in herd_genetics:
+		herd_genetics[genetic_key] = clampf(counts[genetic_key] / n, 0.0, 100.0)
 
 
 func _create_individual_animal(
@@ -3824,6 +3899,7 @@ func _create_individual_animal(
 		"thirst": thirst,
 		"health": health,
 		"genetics": animal_genetics,
+		"destiny": "herd" if category in ["cows", "heifers", "bulls"] else "unassigned",
 		"pregnant": false,
 		"gestation_days": 0,
 		"has_calved": category == "cows",
@@ -3906,8 +3982,9 @@ func _rebuild_herd_categories() -> void:
 func _category_for_animal(animal: Dictionary) -> String:
 	var age_days := int(animal.get("age_days", 0))
 	var sex := str(animal.get("sex", "female"))
+	var w_kg := float(animal.get("weight_kg", 0.0))
 	if sex == "female":
-		if age_days < WEANING_AGE_DAYS:
+		if age_days < WEANING_AGE_DAYS and w_kg < WEANING_WEIGHT_KG:
 			return "female_calves"
 		if bool(animal.get("has_calved", false)) or age_days >= 900:
 			return "cows"
@@ -3932,14 +4009,11 @@ func _update_reproduction_ui() -> void:
 				gestation_days_remaining,
 			]
 		elif calf_age_days >= 0:
-			cycle_text = "bezerros com %d/%d dias para desmama" % [
+			cycle_text = "bezerros com %d dias | desmame aos %d kg" % [
 				calf_age_days,
-				WEANING_AGE_DAYS,
+				WEANING_WEIGHT_KG,
 			]
 
-		var genetics_to_show: Dictionary = (
-			offspring_genetics if not offspring_genetics.is_empty() else herd_genetics
-		)
 		reproduction_status.text = (
 			"Vacas: %d | Novilhas: %d | Touro: %d\n"
 			+ "Bezerros: %d F / %d M | Garrotes: %d | Bois: %d\n"
@@ -3955,20 +4029,19 @@ func _update_reproduction_ui() -> void:
 			int(herd_categories["steers"]),
 			int(herd_categories["oxen"]),
 			cycle_text,
-			roundi(float(genetics_to_show["fertility"])),
-			roundi(float(genetics_to_show["calving_ease"])),
-			roundi(float(genetics_to_show["maternal_ability"])),
-			roundi(float(genetics_to_show["heat_adaptation"])),
-			roundi(float(genetics_to_show["parasite_resistance"])),
-			roundi(float(genetics_to_show["weight_gain"])),
+			roundi(float(herd_genetics["fertility"])),
+			roundi(float(herd_genetics["calving_ease"])),
+			roundi(float(herd_genetics["maternal_ability"])),
+			roundi(float(herd_genetics["heat_adaptation"])),
+			roundi(float(herd_genetics["parasite_resistance"])),
+			roundi(float(herd_genetics["weight_gain"])),
 		]
 
 	var can_breed_now := (
 		herd_created
 		and pregnant_females == 0
 		and calf_age_days < 0
-		and int(herd_categories["cows"]) > 0
-		and _is_breeding_season()
+		and not _eligible_breeding_females().is_empty()
 		and body_condition >= 2.5
 		and health >= 60.0
 	)
@@ -3980,7 +4053,6 @@ func _update_reproduction_ui() -> void:
 		not can_breed_now
 		or cash_balance < ARTIFICIAL_INSEMINATION_COST
 	)
-	select_genetics_button.disabled = offspring_genetics.is_empty() or calf_age_days >= 0
 
 
 func _daily_parasite_increase(parasite_resistance: float) -> float:
@@ -4601,6 +4673,8 @@ func _advance_day(silent: bool = false) -> void:
 		daily_message = "%s %s" % [daily_message, vegetation_service_message]
 
 	_update_individual_animals_day(average_weight_kg - previous_average_weight)
+	if herd_created and herd_size > 0:
+		calculate_herd_genetics_from_animals()
 	if not silent:
 		_refresh_simulation_ui()
 		_update_herd_status(daily_message)
@@ -4625,8 +4699,236 @@ func _update_individual_animals_day(weight_change: float) -> void:
 	_update_herd_marker()
 
 
+func _get_camera_zoom() -> float:
+	var cam := get_viewport().get_camera_2d()
+	if cam == null:
+		return 1.0
+	return cam.zoom.x
+
+
+func _lod_level() -> float:
+	var z := _get_camera_zoom()
+	if z > 0.8:
+		return 1.0
+	if z > 0.3:
+		return 0.5
+	return 0.25
+
+
+func _lod_multiplier(lod: float) -> float:
+	return lod
+
+
+func _check_lod_change() -> void:
+	var new_lod := _lod_level()
+	if not is_equal_approx(new_lod, _current_lod_level):
+		_current_lod_level = new_lod
+		pasture_grass_cache.clear()
+		native_vegetation_cache.clear()
+		_rebuild_pasture_grass_visual()
+		_rebuild_native_vegetation_visual()
+
+
+func _season_factor() -> float:
+	var month := _current_month()
+	if month in [11, 12, 1, 2, 3, 4]:
+		return 1.0
+	if month in [5, 10]:
+		return 0.6
+	return 0.3
+
+
+func _ensure_pasture_grass_layer() -> Node2D:
+	if pasture_grass_layer == null:
+		pasture_grass_layer = Node2D.new()
+		pasture_grass_layer.name = "PastureGrass"
+		pasture_grass_layer.z_index = pasture_1.z_index + 1
+		pasture_1.get_parent().add_child(pasture_grass_layer)
+	return pasture_grass_layer
+
+
+func _ensure_caatinga_vegetation_layer() -> Node2D:
+	if caatinga_vegetation_layer == null:
+		caatinga_vegetation_layer = Node2D.new()
+		caatinga_vegetation_layer.name = "CaatingaVegetation"
+		caatinga_vegetation_layer.z_index = pasture_1.z_index + 1
+		pasture_1.get_parent().add_child(caatinga_vegetation_layer)
+	return caatinga_vegetation_layer
+
+
+func _rebuild_native_vegetation_visual() -> void:
+	var current_cache: Dictionary = {}
+	var any_caatinga := false
+	for area_id in vegetation_manager.areas.keys():
+		var area: Dictionary = vegetation_manager.get_area(area_id)
+		var species := str(area.get("species", "buffel"))
+		var polygon := _vegetation_polygon(area_id)
+		if species != "caatinga" or polygon.size() < 3:
+			continue
+		any_caatinga = true
+		var definition: Dictionary = vegetation_manager.species_definitions()[species]
+		var condition := clampf(
+			float(area.get("biomass_kg_ha", 0.0)) / float(definition["max_biomass"]),
+			0.0,
+			1.0
+		)
+		_visual_condition[area_id] = clampf(
+			_visual_condition.get(area_id, condition), 0.0, 1.0
+		)
+		var base_count := int(clampf(_polygon_area(polygon) / 16000.0, 4.0, 70.0))
+		current_cache[area_id] = {
+			"density": maxi(roundi(base_count * (0.5 + 0.5 * condition) * _lod_multiplier(_current_lod_level)), 2),
+			"species": species,
+		}
+	if current_cache == native_vegetation_cache:
+		return
+	native_vegetation_cache = current_cache
+	if not any_caatinga and caatinga_vegetation_layer == null:
+		return
+	var layer := _ensure_caatinga_vegetation_layer()
+	for child in layer.get_children():
+		child.queue_free()
+	if not any_caatinga:
+		return
+	var rng := RandomNumberGenerator.new()
+	for area_id in current_cache:
+		var density: int = current_cache[area_id]["density"]
+		var polygon := _vegetation_polygon(area_id)
+		var definition: Dictionary = vegetation_manager.species_definitions()["caatinga"]
+		var growth := clampf(_visual_condition.get(area_id, 0.5), 0.15, 1.0)
+		var species_color: Color = Color(definition["dry_color"]).lerp(
+			Color(definition["healthy_color"]), 0.65
+		)
+		var bounding_min := Vector2(INF, INF)
+		var bounding_max := Vector2(-INF, -INF)
+		for vertex in polygon:
+			bounding_min = bounding_min.min(vertex)
+			bounding_max = bounding_max.max(vertex)
+		rng.seed = int(area_id) * 7919 + 17
+		var placed := 0
+		var attempts := 0
+		while placed < density and attempts < density * 30:
+			attempts += 1
+			var candidate := Vector2(
+				rng.randf_range(bounding_min.x, bounding_max.x),
+				rng.randf_range(bounding_min.y, bounding_max.y)
+			)
+			if not Geometry2D.is_point_in_polygon(candidate, polygon):
+				continue
+			var too_close := false
+			for sibling in layer.get_children():
+				if sibling.position.distance_to(candidate) < 84.0:
+					too_close = true
+					break
+			if too_close:
+				continue
+			placed += 1
+			var radius := rng.randf_range(14.0, 28.0)
+			var shadow := Sprite2D.new()
+			shadow.name = "BushShadow%d_%d" % [area_id, placed]
+			shadow.position = candidate + Vector2(6.0, 8.0)
+			shadow.texture = VegetationSpriteGenerator.shadow_texture()
+			shadow.scale = Vector2.ONE * (radius * 1.4 / 34.0) * growth
+			layer.add_child(shadow)
+			var bush := Sprite2D.new()
+			bush.name = "Bush%d_%d" % [area_id, placed]
+			bush.position = candidate
+			bush.texture = VegetationSpriteGenerator.bush_texture(placed)
+			bush.scale = Vector2.ONE * (radius / 26.0) * growth
+			var shade := rng.randf_range(0.15, 0.55)
+			bush.modulate = species_color.darkened(shade)
+			bush.modulate.a = clampf(0.85 + growth * 0.15, 0.75, 0.98)
+			bush.material = VegetationShader.bush_material()
+			layer.add_child(bush)
+
+
+func _rebuild_pasture_grass_visual() -> void:
+	var current_cache: Dictionary = {}
+	var any_area := false
+	for area_id in vegetation_manager.areas.keys():
+		var area: Dictionary = vegetation_manager.get_area(area_id)
+		var polygon := _vegetation_polygon(area_id)
+		if polygon.size() < 3:
+			continue
+		any_area = true
+		var definition: Dictionary = vegetation_manager.species_definitions()[
+			str(area.get("species", "buffel"))
+		]
+		var condition := clampf(
+			float(area.get("biomass_kg_ha", 0.0)) / float(definition["max_biomass"]),
+			0.0,
+			1.0
+		)
+		_visual_condition[area_id] = clampf(
+			_visual_condition.get(area_id, condition), 0.0, 1.0
+		)
+		var base_count := int(clampf(_polygon_area(polygon) / 9000.0, 6.0, 90.0))
+		current_cache[area_id] = {
+			"density": maxi(roundi(base_count * (0.4 + 0.6 * condition) * _lod_multiplier(_current_lod_level)), 2),
+			"species": str(area.get("species", "buffel")),
+		}
+	if current_cache == pasture_grass_cache:
+		return
+	pasture_grass_cache = current_cache
+	if not any_area and pasture_grass_layer == null:
+		return
+	var layer := _ensure_pasture_grass_layer()
+	for child in layer.get_children():
+		child.queue_free()
+	if not any_area:
+		return
+	var rng := RandomNumberGenerator.new()
+	for area_id in current_cache:
+		var density: int = current_cache[area_id]["density"]
+		var polygon := _vegetation_polygon(area_id)
+		var base_color := vegetation_manager.visual_color(area_id)
+		var growth := clampf(_visual_condition.get(area_id, 0.5), 0.15, 1.0)
+		var bounding_min := Vector2(INF, INF)
+		var bounding_max := Vector2(-INF, -INF)
+		for vertex in polygon:
+			bounding_min = bounding_min.min(vertex)
+			bounding_max = bounding_max.max(vertex)
+		rng.seed = int(area_id) * 5197 + 31
+		var placed := 0
+		var attempts := 0
+		while placed < density and attempts < density * 24:
+			attempts += 1
+			var candidate := Vector2(
+				rng.randf_range(bounding_min.x, bounding_max.x),
+				rng.randf_range(bounding_min.y, bounding_max.y)
+			)
+			if not Geometry2D.is_point_in_polygon(candidate, polygon):
+				continue
+			var too_close := false
+			for sibling in layer.get_children():
+				if sibling.position.distance_to(candidate) < 46.0:
+					too_close = true
+					break
+			if too_close:
+				continue
+			placed += 1
+			var radius := rng.randf_range(8.0, 18.0)
+			var shadow := Sprite2D.new()
+			shadow.name = "GrassShadow%d_%d" % [area_id, placed]
+			shadow.position = candidate + Vector2(4.0, 5.0)
+			shadow.texture = VegetationSpriteGenerator.shadow_texture()
+			shadow.scale = Vector2.ONE * (radius * 1.2 / 34.0) * growth
+			layer.add_child(shadow)
+			var tuft := Sprite2D.new()
+			tuft.name = "Grass%d_%d" % [area_id, placed]
+			tuft.position = candidate
+			tuft.texture = VegetationSpriteGenerator.grass_texture(placed)
+			tuft.scale = Vector2.ONE * (radius / 28.0) * growth
+			var shade := rng.randf_range(-0.12, 0.18)
+			tuft.modulate = base_color.lightened(maxf(shade, 0.0)).darkened(maxf(-shade, 0.0))
+			tuft.modulate.a = clampf(0.6 + growth * 0.35, 0.5, 0.95)
+			tuft.material = VegetationShader.grass_material()
+			layer.add_child(tuft)
+
+
 func _update_pasture_visuals() -> void:
 	_sync_legacy_from_vegetation()
+	_check_lod_change()
 	pasture_1_label.text = "PASTO 1\nForragem: %d%% | Qualidade: %d%%\nDegradação: %d%% | Capacidade: %d" % [
 		roundi(forage[1]),
 		roundi(pasture_quality[1]),
@@ -4639,8 +4941,28 @@ func _update_pasture_visuals() -> void:
 		roundi(pasture_degradation[2]),
 		pasture_capacity[2],
 	]
+	var target_season := _season_factor()
+	if _visual_season_factor < 0.0:
+		_visual_season_factor = target_season
+	else:
+		_visual_season_factor = lerpf(_visual_season_factor, target_season, 0.15)
 	pasture_1.color = vegetation_manager.visual_color(1)
 	pasture_2.color = vegetation_manager.visual_color(2)
+	for area_id in vegetation_manager.areas.keys():
+		var area: Dictionary = vegetation_manager.get_area(area_id)
+		var def: Dictionary = vegetation_manager.species_definitions().get(
+			str(area.get("species", "buffel")), {}
+		)
+		if def.is_empty():
+			continue
+		var raw := clampf(
+			float(area.get("biomass_kg_ha", 0.0)) / float(def.get("max_biomass", 1.0)),
+			0.0, 1.0
+		)
+		var prev: float = _visual_condition.get(area_id, raw)
+		_visual_condition[area_id] = lerpf(prev, raw, 0.15)
+	_rebuild_native_vegetation_visual()
+	_rebuild_pasture_grass_visual()
 
 
 func _update_pasture_condition() -> float:
@@ -5454,7 +5776,6 @@ func _sell_animals() -> void:
 		gestation_days_remaining = 0
 		calf_age_days = -1
 		breeding_method = ""
-		offspring_genetics = {}
 		herd_status.text = "A fazenda está sem bovinos."
 		_update_finance_ui()
 		_update_nutrition_ui()
@@ -5614,7 +5935,10 @@ func _format_money(value: int) -> String:
 
 func _save_game(show_message: bool = true) -> void:
 	var save_data := _build_save_data()
-	var save_file := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
+	var save_dir := save_path.get_base_dir()
+	if not DirAccess.dir_exists_absolute(save_dir):
+		DirAccess.make_dir_recursive_absolute(save_dir)
+	var save_file := FileAccess.open(save_path, FileAccess.WRITE)
 
 	if save_file == null:
 		if show_message:
@@ -5657,7 +5981,6 @@ func _build_save_data() -> Dictionary:
 		"health": health,
 		"herd_categories": herd_categories.duplicate(true),
 		"herd_genetics": herd_genetics.duplicate(true),
-		"offspring_genetics": offspring_genetics,
 		"pregnant_females": pregnant_females,
 		"gestation_days_remaining": gestation_days_remaining,
 		"calf_age_days": calf_age_days,
@@ -5710,12 +6033,12 @@ func _build_save_data() -> Dictionary:
 
 func _load_game(show_message: bool = true) -> void:
 	startup_save_checked = true
-	if not FileAccess.file_exists(SAVE_PATH):
+	if not FileAccess.file_exists(save_path):
 		if show_message:
 			save_status.text = "Nenhuma partida salva."
 		return
 
-	var save_file := FileAccess.open(SAVE_PATH, FileAccess.READ)
+	var save_file := FileAccess.open(save_path, FileAccess.READ)
 	if save_file == null:
 		if show_message:
 			save_status.text = "Não foi possível carregar."
@@ -5753,7 +6076,6 @@ func _restore_saved_game(save_data: Dictionary) -> void:
 	var saved_herd_pasture := int(save_data.get("herd_pasture", 1))
 	var saved_categories = save_data.get("herd_categories", {})
 	var saved_genetics = save_data.get("herd_genetics", herd_genetics)
-	var saved_offspring = save_data.get("offspring_genetics", {})
 	var saved_pregnant := int(save_data.get("pregnant_females", 0))
 	var saved_gestation_days := int(save_data.get("gestation_days_remaining", 0))
 	var saved_calf_age := int(save_data.get("calf_age_days", -1))
@@ -5988,9 +6310,8 @@ func _restore_saved_game(save_data: Dictionary) -> void:
 				herd_genetics[genetic_key] = clampf(
 					float(saved_genetics.get(genetic_key, herd_genetics[genetic_key])),
 					0.0,
-					100.0
-				)
-		offspring_genetics = saved_offspring if saved_offspring is Dictionary else {}
+				100.0
+			)
 		herd_animals.clear()
 		next_animal_id = 1
 		if saved_animals is Array and not saved_animals.is_empty():
@@ -6004,6 +6325,8 @@ func _restore_saved_game(save_data: Dictionary) -> void:
 				)
 				for animal_key in saved_animal:
 					restored_animal[animal_key] = saved_animal[animal_key]
+				if not restored_animal.has("destiny") or str(restored_animal.get("destiny", "")).is_empty():
+					restored_animal["destiny"] = "herd" if saved_category in ["cows", "heifers", "bulls"] else "unassigned"
 				herd_animals.append(restored_animal)
 			next_animal_id = maxi(saved_next_animal_id, next_animal_id)
 		else:
@@ -6095,7 +6418,6 @@ func _reset_construction_visuals() -> void:
 		"oxen": 0,
 		"bulls": 0,
 	}
-	offspring_genetics = {}
 	pregnant_females = 0
 	gestation_days_remaining = 0
 	calf_age_days = -1
