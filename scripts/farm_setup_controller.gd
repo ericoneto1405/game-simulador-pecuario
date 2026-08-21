@@ -115,6 +115,10 @@ const CATTLE_BREEDS := [
 	{"key": "braford", "name": "Braford"},
 	{"key": "senepol", "name": "Senepol"},
 ]
+const GENETIC_TRAITS := ["fertility", "calving_ease", "heat_adaptation", "parasite_resistance", "weight_gain", "maternal_ability"]
+const VISUAL_TRAITS := ["coat_color", "horn_type"]
+const ALL_TRAITS := GENETIC_TRAITS + VISUAL_TRAITS
+const LOCI_PER_TRAIT := 3
 const PASTURE_1_COLOR := Color(0.39, 0.49, 0.25, 0.22)
 const PASTURE_2_COLOR := Color(0.35, 0.45, 0.22, 0.22)
 const DRY_PASTURE_COLOR := Color(0.56, 0.43, 0.22, 0.22)
@@ -377,23 +381,6 @@ var body_condition := 3.0
 var hunger := 0.0
 var thirst := 0.0
 var health := 100.0
-var herd_categories := {
-	"female_calves": 0,
-	"male_calves": 0,
-	"heifers": 0,
-	"cows": 0,
-	"steers": 0,
-	"oxen": 0,
-	"bulls": 0,
-}
-var herd_genetics := {
-	"fertility": 82.0,
-	"calving_ease": 85.0,
-	"heat_adaptation": 78.0,
-	"parasite_resistance": 72.0,
-	"weight_gain": 70.0,
-	"maternal_ability": 68.0,
-}
 var pregnant_females := 0
 var gestation_days_remaining := 0
 var calf_age_days := -1
@@ -407,6 +394,14 @@ var relief_zone := {1: "Baixada", 2: "Área alta"}
 var soil_moisture := {1: 62.0, 2: 38.0}
 var soil_fertility := {1: 78.0, 2: 48.0}
 var soil_compaction := {1: 12.0, 2: 8.0}
+var herd_genotype_average: Dictionary = {
+	"fertility": 50.0,
+	"calving_ease": 50.0,
+	"heat_adaptation": 50.0,
+	"parasite_resistance": 50.0,
+	"weight_gain": 50.0,
+	"maternal_ability": 50.0,
+}
 var soil_erosion := {1: 4.0, 2: 12.0}
 var soil_daily_runoff := {1: 0.0, 2: 0.0}
 var mineral_stock_kg := 0.0
@@ -3748,7 +3743,7 @@ func _start_breeding_cycle(method: String, fertility_bonus: float) -> void:
 		return
 	var condition_adjustment := (body_condition - 3.0) * 8.0
 	var conception_rate := clampf(
-		float(herd_genetics["fertility"]) + fertility_bonus + condition_adjustment,
+		_herd_average_phenotype("fertility") + fertility_bonus + condition_adjustment,
 		35.0,
 		95.0
 	)
@@ -3818,16 +3813,62 @@ func _advance_reproduction_day() -> String:
 			animal["gestation_days"] = 0
 			animal["has_calved"] = true
 	var newborn_index := 0
+	var pregnant_mothers: Array = []
+	for animal in herd_animals:
+		if bool(animal.get("pregnant", false)):
+			pregnant_mothers.append(animal)
+	var mother_idx := 0
 	for _female_index in range(female_births):
-		var calf_breed := newborn_breeds[newborn_index % newborn_breeds.size()]
-		var female_calf := _create_individual_animal("female_calves", {}, calf_breed)
+		if mother_idx >= pregnant_mothers.size():
+			mother_idx = 0
+		var mother := pregnant_mothers[mother_idx]
+		mother_idx += 1
+			
+		// Find a bull father - look for intact males
+		var father := {}
+		for a in herd_animals:
+			if bool(a.get("intact_male", false)) and str(a.get("category", "")) == "bulls":
+				father := a
+				break
+		if father == {}:
+			father := herd_animals[0]  // fallback
+				
+		// Resolve calf breed: use father's breed if different from mother, else mother's
+		var calf_breed := _resolve_offspring_breed(
+			str(mother["breed"]),
+			str(father["breed"])
+		)
+			
+		// Create offspring genotype via Punnett square inheritance
+		var calf_genotype := _create_offspring_genotype(mother, father)
+			
+		var female_calf := _create_individual_animal("female_calves", calf_genotype, calf_breed)
 		female_calf["age_days"] = 0
 		female_calf["weight_kg"] = 32.0
 		herd_animals.append(female_calf)
 		newborn_index += 1
 	for _male_index in range(male_births):
-		var calf_breed := newborn_breeds[newborn_index % newborn_breeds.size()]
-		var male_calf := _create_individual_animal("male_calves", {}, calf_breed)
+		if mother_idx >= pregnant_mothers.size():
+			mother_idx = 0
+		var mother := pregnant_mothers[mother_idx]
+		mother_idx += 1
+			
+		var father := {}
+		for a in herd_animals:
+			if bool(a.get("intact_male", false)) and str(a.get("category", "")) == "bulls":
+				father := a
+				break
+		if father == {}:
+			father := herd_animals[0]
+				
+		var calf_breed := _resolve_offspring_breed(
+			str(mother["breed"]),
+			str(father["breed"])
+		)
+			
+		var calf_genotype := _create_offspring_genotype(mother, father)
+			
+		var male_calf := _create_individual_animal("male_calves", calf_genotype, calf_breed)
 		male_calf["age_days"] = 0
 		male_calf["weight_kg"] = 34.0
 		herd_animals.append(male_calf)
@@ -3878,15 +3919,15 @@ func calculate_herd_genetics_from_animals() -> void:
 
 func _create_individual_animal(
 	category: String,
-	custom_genetics: Dictionary = {},
+	custom_genotype: Dictionary = {},
 	custom_breed: String = DEFAULT_CATTLE_BREED
 ) -> Dictionary:
 	var sex := "female" if category in ["female_calves", "heifers", "cows"] else "male"
 	var category_profile := _market_category_profile(category)
-	var animal_genetics: Dictionary = (
-		custom_genetics.duplicate(true)
-		if not custom_genetics.is_empty()
-		else herd_genetics.duplicate(true)
+	var animal_genotype: Dictionary = (
+		custom_genotype.duplicate(true)
+		if not custom_genotype.is_empty()
+		else _generate_random_genotype(_normalize_breed(custom_breed))
 	)
 	var animal := {
 		"id": "BOV-%04d" % next_animal_id,
@@ -3898,7 +3939,7 @@ func _create_individual_animal(
 		"hunger": hunger,
 		"thirst": thirst,
 		"health": health,
-		"genetics": animal_genetics,
+		"genotype": animal_genotype,
 		"destiny": "herd" if category in ["cows", "heifers", "bulls"] else "unassigned",
 		"pregnant": false,
 		"gestation_days": 0,
@@ -3916,12 +3957,12 @@ func _create_individual_animal(
 func _add_individual_animals(
 	category: String,
 	quantity: int,
-	custom_genetics: Dictionary = {},
+	custom_genotype: Dictionary = {},
 	custom_breed: String = DEFAULT_CATTLE_BREED
 ) -> void:
 	for _animal_index in range(maxi(quantity, 0)):
 		herd_animals.append(
-			_create_individual_animal(category, custom_genetics, custom_breed)
+			_create_individual_animal(category, custom_genotype, custom_breed)
 		)
 	_sync_herd_size()
 
@@ -3933,7 +3974,145 @@ func _normalize_breed(breed_key: String) -> String:
 	return DEFAULT_CATTLE_BREED
 
 
-func _selected_market_breed() -> String:
+const BREED_GENOTYPE_PROFILES := {
+	"nelore": {
+		"fertility": {"locus_1": ["A","a"], "locus_2": ["A","A"], "locus_3": ["a","a"]},
+		"calving_ease": {"locus_1": ["A","A"], "locus_2": ["A","a"], "locus_3": ["a","a"]},
+		"heat_adaptation": {"locus_1": ["A","A"], "locus_2": ["A","A"], "locus_3": ["A","a"]},
+		"parasite_resistance": {"locus_1": ["A","A"], "locus_2": ["A","a"], "locus_3": ["a","a"]},
+		"weight_gain": {"locus_1": ["A","a"], "locus_2": ["a","a"], "locus_3": ["a","a"]},
+		"maternal_ability": {"locus_1": ["A","a"], "locus_2": ["A","a"], "locus_3": ["a","a"]},
+	},
+	"angus": {
+		"fertility": {"locus_1": ["A","A"], "locus_2": ["A","A"], "locus_3": ["a","a"]},
+		"calving_ease": {"locus_1": ["A","A"], "locus_2": ["A","A"], "locus_3": ["A","a"]},
+		"heat_adaptation": {"locus_1": ["a","a"], "locus_2": ["a","a"], "locus_3": ["A","a"]},
+		"parasite_resistance": {"locus_1": ["A","a"], "locus_2": ["a","a"], "locus_3": ["a","a"]},
+		"weight_gain": {"locus_1": ["A","A"], "locus_2": ["A","A"], "locus_3": ["A","a"]},
+		"maternal_ability": {"locus_1": ["A","A"], "locus_2": ["A","a"], "locus_3": ["A","a"]},
+	},
+	"guzera": {
+		"fertility": {"locus_1": ["A","A"], "locus_2": ["A","a"], "locus_3": ["a","a"]},
+		"calving_ease": {"locus_1": ["A","A"], "locus_2": ["A","A"], "locus_3": ["A","A"]},
+		"heat_adaptation": {"locus_1": ["A","A"], "locus_2": ["A","a"], "locus_3": ["a","a"]},
+		"parasite_resistance": {"locus_1": ["A","A"], "locus_2": ["A","A"], "locus_3": ["A","a"]},
+		"weight_gain": {"locus_1": ["A","a"], "locus_2": ["a","a"], "locus_3": ["a","a"]},
+		"maternal_ability": {"locus_1": ["A","a"], "locus_2": ["A","A"], "locus_3": ["A","a"]},
+	},
+	"brahman": {
+		"fertility": {"locus_1": ["A","a"], "locus_2": ["A","A"], "locus_3": ["A","a"]},
+		"calving_ease": {"locus_1": ["A","a"], "locus_2": ["a","a"], "locus_3": ["a","a"]},
+		"heat_adaptation": {"locus_1": ["A","A"], "locus_2": ["A","A"], "locus_3": ["A","A"]},
+		"parasite_resistance": {"locus_1": ["A","A"], "locus_2": ["A","A"], "locus_3": ["A","A"]},
+		"weight_gain": {"locus_1": ["A","A"], "locus_2": ["A","a"], "locus_3": ["a","a"]},
+		"maternal_ability": {"locus_1": ["A","a"], "locus_2": ["A","A"], "locus_3": ["A","a"]},
+	},
+	"tabapua": {
+		"fertility": {"locus_1": ["A","a"], "locus_2": ["A","A"], "locus_3": ["A","a"]},
+		"calving_ease": {"locus_1": ["A","A"], "locus_2": ["A","a"], "locus_3": ["a","a"]},
+		"heat_adaptation": {"locus_1": ["A","a"], "locus_2": ["a","a"], "locus_3": ["a","a"]},
+		"parasite_resistance": {"locus_1": ["A","a"], "locus_2": ["A","a"], "locus_3": ["a","a"]},
+		"weight_gain": {"locus_1": ["A","A"], "locus_2": ["A","a"], "locus_3": ["A","a"]},
+		"maternal_ability": {"locus_1": ["A","a"], "locus_2": ["A","A"], "locus_3": ["A","a"]},
+	},
+	"sindi": {
+		"fertility": {"locus_1": ["a","a"], "locus_2": ["A","a"], "locus_3": ["a","a"]},
+		"calving_ease": {"locus_1": ["a","a"], "locus_2": ["A","A"], "locus_3": ["A","a"]},
+		"heat_adaptation": {"locus_1": ["a","a"], "locus_2": ["a","a"], "locus_3": ["A","A"]},
+		"parasite_resistance": {"locus_1": ["a","a"], "locus_2": ["A","a"], "locus_3": ["a","a"]},
+		"weight_gain": {"locus_1": ["a","a"], "locus_2": ["a","a"], "locus_3": ["a","a"]},
+		"maternal_ability": {"locus_1": ["a","a"], "locus_2": ["A","a"], "locus_3": ["A","a"]},
+	},
+	"angus": {
+		"fertility": {"locus_1": ["A","A"], "locus_2": ["A","A"], "locus_3": ["a","a"]},
+		"calving_ease": {"locus_1": ["A","A"], "locus_2": ["A","A"], "locus_3": ["A","a"]},
+		"heat_adaptation": {"locus_1": ["a","a"], "locus_2": ["a","a"], "locus_3": ["A","a"]},
+		"parasite_resistance": {"locus_1": ["A","a"], "locus_2": ["a","a"], "locus_3": ["a","a"]},
+		"weight_gain": {"locus_1": ["A","A"], "locus_2": ["A","A"], "locus_3": ["A","a"]},
+		"maternal_ability": {"locus_1": ["A","A"], "locus_2": ["A","a"], "locus_3": ["A","a"]},
+	},
+	"hereford": {
+		"fertility": {"locus_1": ["A","a"], "locus_2": ["A","a"], "locus_3": ["A","a"]},
+		"calving_ease": {"locus_1": ["A","A"], "locus_2": ["A","a"], "locus_3": ["a","a"]},
+		"heat_adaptation": {"locus_1": ["a","a"], "locus_2": ["A","a"], "locus_3": ["a","a"]},
+		"parasite_resistance": {"locus_1": ["A","a"], "locus_2": ["A","a"], "locus_3": ["A","a"]},
+		"weight_gain": {"locus_1": ["A","a"], "locus_2": ["A","A"], "locus_3": ["A","a"]},
+		"maternal_ability": {"locus_1": ["A","A"], "locus_2": ["A","a"], "locus_3": ["A","a"]},
+	},
+	"brangus": {
+		"fertility": {"locus_1": ["A","a"], "locus_2": ["A","A"], "locus_3": ["A","a"]},
+		"calving_ease": {"locus_1": ["A","A"], "locus_2": ["A","a"], "locus_3": ["a","a"]},
+		"heat_adaptation": {"locus_1": ["A","a"], "locus_2": ["A","a"], "locus_3": ["A","a"]},
+		"parasite_resistance": {"locus_1": ["A","A"], "locus_2": ["A","a"], "locus_3": ["a","a"]},
+		"weight_gain": {"locus_1": ["A","A"], "locus_2": ["A","a"], "locus_3": ["A","a"]},
+		"maternal_ability": {"locus_1": ["A","a"], "locus_2": ["A","A"], "locus_3": ["A","a"]},
+	},
+	"braford": {
+		"fertility": {"locus_1": ["A","a"], "locus_2": ["A","a"], "locus_3": ["A","a"]},
+		"calving_ease": {"locus_1": ["A","A"], "locus_2": ["A","a"], "locus_3": ["A","a"]},
+		"heat_adaptation": {"locus_1": ["A","A"], "locus_2": ["A","a"], "locus_3": ["a","a"]},
+		"parasite_resistance": {"locus_1": ["A","a"], "locus_2": ["A","A"], "locus_3": ["A","a"]},
+		"weight_gain": {"locus_1": ["A","A"], "locus_2": ["A","a"], "locus_3": ["A","a"]},
+		"maternal_ability": {"locus_1": ["A","a"], "locus_2": ["A","A"], "locus_3": ["A","a"]},
+	},
+	"senepol": {
+		"fertility": {"locus_1": ["A","a"], "locus_2": ["A","A"], "locus_3": ["A","a"]},
+		"calving_ease": {"locus_1": ["A","A"], "locus_2": ["A","a"], "locus_3": ["A","a"]},
+		"heat_adaptation": {"locus_1": ["A","a"], "locus_2": ["A","A"], "locus_3": ["A","a"]},
+		"parasite_resistance": {"locus_1": ["A","a"], "locus_2": ["A","a"], "locus_3": ["A","a"]},
+		"weight_gain": {"locus_1": ["A","a"], "locus_2": ["A","a"], "locus_3": ["A","a"]},
+		"maternal_ability": {"locus_1": ["A","a"], "locus_2": ["A","a"], "locus_3": ["A","a"]},
+	},
+}
+
+func _generate_random_genotype(breed: String) -> Dictionary:
+	var base := BREED_GENOTYPE_PROFILES.get(breed, BREED_GENOTYPE_PROFILES["nelore"])
+	var genotype := {}
+	for trait in ALL_TRAITS:
+		genotype[trait] := {}
+		var trait_base := base.get(trait, {})
+		for locus_name in trait_base:
+			var alleles := trait_base[locus_name].duplicate()
+			// 10% chance of mutation per allele
+			if randf() < 0.10:
+				alleles[0] = _flip_allele(alleles[0])
+			if randf() < 0.10:
+				alleles[1] = _flip_allele(alleles[1])
+			genotype[trait][locus_name] := alleles
+	return genotype
+
+func _flip_allele(allele: String) -> String:
+	return allele.to_lower() if allele == allele.to_upper() else allele.to_upper()
+
+func _calculate_phenotype(genotype: Dictionary, trait: String) -> float:
+	var loci = genotype[trait]
+	var dominant_count = 0
+	var total_alleles = 0
+	for locus in loci:
+		for allele in locus:
+			total_alleles += 1
+			if allele == allele.to_upper():
+				dominant_count += 1
+	if total_alleles == 0:
+		return 50.0
+	return (dominant_count / float(total_alleles)) * 100.0
+
+func _herd_average_phenotype(trait: String) -> float:
+	var herd_animal_list: Array = herd_animals.filter(
+		func(a: Dictionary) -> bool: return str(a.get("destiny", "")) == "herd"
+	)
+	if herd_animal_list.is_empty():
+		return herd_genotype_average[trait]
+	var total := 0.0
+	for animal in herd_animal_list:
+		total += _calculate_phenotype(animal["genotype"], trait)
+	return total / float(herd_animal_list.size())
+
+func _herd_genetics_snapshot() -> Dictionary:
+	var snapshot := {}
+	for trait in GENETIC_TRAITS:
+		snapshot[trait] = _herd_average_phenotype(trait)
+	return snapshot
 	if breed_selector.item_count <= 0:
 		return DEFAULT_CATTLE_BREED
 	return _normalize_breed(str(breed_selector.get_selected_metadata()))
@@ -4881,7 +5060,7 @@ func _rebuild_pasture_grass_visual() -> void:
 	for area_id in current_cache:
 		var density: int = current_cache[area_id]["density"]
 		var polygon := _vegetation_polygon(area_id)
-		var base_color := vegetation_manager.visual_color(area_id)
+		var base_color := vegetation_manager.visual_color(area_id, _visual_season_factor)
 		var growth := clampf(_visual_condition.get(area_id, 0.5), 0.15, 1.0)
 		var bounding_min := Vector2(INF, INF)
 		var bounding_max := Vector2(-INF, -INF)
@@ -4946,8 +5125,8 @@ func _update_pasture_visuals() -> void:
 		_visual_season_factor = target_season
 	else:
 		_visual_season_factor = lerpf(_visual_season_factor, target_season, 0.15)
-	pasture_1.color = vegetation_manager.visual_color(1)
-	pasture_2.color = vegetation_manager.visual_color(2)
+	pasture_1.color = vegetation_manager.visual_color(1, _visual_season_factor)
+	pasture_2.color = vegetation_manager.visual_color(2, _visual_season_factor)
 	for area_id in vegetation_manager.areas.keys():
 		var area: Dictionary = vegetation_manager.get_area(area_id)
 		var def: Dictionary = vegetation_manager.species_definitions().get(
