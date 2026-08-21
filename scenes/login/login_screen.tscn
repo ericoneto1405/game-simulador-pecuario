@@ -1,4 +1,4 @@
-[gd_scene load_steps=7 format=3]
+[gd_scene load_steps=12 format=3]
 
 [ext_resource type="Script" path="res://scripts/login_screen.gd" id="1_login"]
 [ext_resource type="Texture2D" path="res://assets/maps/fazenda-santo-antonio-relevo-seco.png" id="2_bg"]
@@ -38,6 +38,92 @@ corner_radius_top_left = 4
 corner_radius_top_right = 4
 corner_radius_bottom_right = 4
 corner_radius_bottom_left = 4
+
+[sub_resource type="StyleBoxFlat" id="StyleLoginBtn"]
+bg_color = Color(0.45, 0.65, 0.28, 1)
+corner_radius_top_left = 6
+corner_radius_top_right = 6
+corner_radius_bottom_right = 6
+corner_radius_bottom_left = 6
+content_margin_left = 16
+content_margin_top = 8
+content_margin_right = 16
+content_margin_bottom = 8
+
+[sub_resource type="StyleBoxFlat" id="StyleLoginBtnHover"]
+bg_color = Color(0.52, 0.73, 0.33, 1)
+corner_radius_top_left = 6
+corner_radius_top_right = 6
+corner_radius_bottom_right = 6
+corner_radius_bottom_left = 6
+content_margin_left = 16
+content_margin_top = 8
+content_margin_right = 16
+content_margin_bottom = 8
+
+[sub_resource type="StyleBoxFlat" id="StyleRegisterBtn"]
+bg_color = Color(0.15, 0.18, 0.12, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.31, 0.36, 0.21, 1)
+corner_radius_top_left = 6
+corner_radius_top_right = 6
+corner_radius_bottom_right = 6
+corner_radius_bottom_left = 6
+content_margin_left = 16
+content_margin_top = 8
+content_margin_right = 16
+content_margin_bottom = 8
+
+[sub_resource type="StyleBoxFlat" id="StyleRegisterBtnHover"]
+bg_color = Color(0.2, 0.24, 0.16, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.36, 0.43, 0.22, 1)
+corner_radius_top_left = 6
+corner_radius_top_right = 6
+corner_radius_bottom_right = 6
+corner_radius_bottom_left = 6
+content_margin_left = 16
+content_margin_top = 8
+content_margin_right = 16
+content_margin_bottom = 8
+
+[sub_resource type="StyleBoxFlat" id="StyleLogoutBtn"]
+bg_color = Color(0.15, 0.18, 0.12, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.31, 0.36, 0.21, 1)
+corner_radius_top_left = 6
+corner_radius_top_right = 6
+corner_radius_bottom_right = 6
+corner_radius_bottom_left = 6
+content_margin_left = 16
+content_margin_top = 8
+content_margin_right = 16
+content_margin_bottom = 8
+
+[sub_resource type="StyleBoxFlat" id="StyleLogoutBtnHover"]
+bg_color = Color(0.2, 0.24, 0.16, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.36, 0.43, 0.22, 1)
+corner_radius_top_left = 6
+corner_radius_top_right = 6
+corner_radius_bottom_right = 6
+corner_radius_bottom_left = 6
+content_margin_left = 16
+content_margin_top = 8
+content_margin_right = 16
+content_margin_bottom = 8
 
 [sub_resource type="StyleBoxFlat" id="StyleSlotCard"]
 bg_color = Color(0.085, 0.1, 0.07, 1)
@@ -176,9 +262,10 @@ alignment = 1
 unique_name_in_owner = true
 layout_mode = 2
 custom_minimum_size = Vector2(130, 40)
+theme_override_styles/normal = SubResource("StyleLoginBtn")
+theme_override_styles/hover = SubResource("StyleLoginBtnHover")
 theme_override_colors/font_color = Color(0.08, 0.1, 0.06, 1)
 theme_override_colors/font_hover_color = Color(0.06, 0.08, 0.04, 1)
-theme_override_colors/bg_color = Color(0.45, 0.65, 0.28, 1)
 theme_override_font_sizes/font_size = 15
 text = "Entrar"
 
@@ -186,10 +273,10 @@ text = "Entrar"
 unique_name_in_owner = true
 layout_mode = 2
 custom_minimum_size = Vector2(130, 40)
+theme_override_styles/normal = SubResource("StyleRegisterBtn")
+theme_override_styles/hover = SubResource("StyleRegisterBtnHover")
 theme_override_colors/font_color = Color(0.78, 0.82, 0.68, 1)
 theme_override_colors/font_hover_color = Color(0.9, 0.93, 0.82, 1)
-theme_override_colors/bg_color = Color(0.15, 0.18, 0.12, 1)
-theme_override_colors/bg_hover_color = Color(0.2, 0.24, 0.16, 1)
 theme_override_font_sizes/font_size = 15
 text = "Cadastrar"
 
@@ -240,8 +327,9 @@ alignment = 1
 unique_name_in_owner = true
 layout_mode = 2
 custom_minimum_size = Vector2(130, 36)
+theme_override_styles/normal = SubResource("StyleLogoutBtn")
+theme_override_styles/hover = SubResource("StyleLogoutBtnHover")
 theme_override_colors/font_color = Color(0.78, 0.82, 0.68, 1)
-theme_override_colors/bg_color = Color(0.15, 0.18, 0.12, 1)
-theme_override_colors/bg_hover_color = Color(0.2, 0.24, 0.16, 1)
+theme_override_colors/font_hover_color = Color(0.9, 0.93, 0.82, 1)
 theme_override_font_sizes/font_size = 13
 text = "Sair da conta"
