@@ -11,8 +11,12 @@ config_version=5
 [application]
 
 config/name="Game Simulador Pecuário"
-run/main_scene="res://scenes/main/main.tscn"
+run/main_scene="res://scenes/login/login_screen.tscn"
 config/features=PackedStringArray("4.7")
+
+[autoload]
+
+UserManager="*res://scripts/user_manager.gd"
 
 [display]
 

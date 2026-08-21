@@ -573,7 +573,7 @@ func _run() -> void:
 	_check(main_scene.get("feeding_plan_days_remaining") == 6, "O trato programado deve diminuir a cada dia.")
 
 	var save_data: Dictionary = main_scene.call("_build_save_data")
-	_check(save_data.get("version") == 18, "O salvamento deve incluir o sistema de vegetação.")
+	_check(save_data.get("version") == 19, "O salvamento deve incluir o sistema de vegetação.")
 	_check(
 		save_data.has("vegetation_state")
 		and save_data["vegetation_state"].get("areas", {}).size() == 2,
@@ -844,7 +844,10 @@ func _run() -> void:
 		),
 		"Os nascimentos devem preservar o registro da raça."
 	)
-	_check(not main_scene.get("offspring_genetics").is_empty(), "Os bezerros devem herdar características genéticas.")
+	for calf in main_scene.get("herd_animals"):
+		var cat := str(calf.get("category", ""))
+		if cat in ["female_calves", "male_calves"]:
+			calf["weight_kg"] = 220.0
 	main_scene.set("calf_age_days", 209)
 	main_scene.call("_advance_reproduction_day")
 	var categories_after_weaning: Dictionary = main_scene.get("herd_categories")
@@ -852,12 +855,6 @@ func _run() -> void:
 		categories_after_weaning["female_calves"] == 0
 		and categories_after_weaning["male_calves"] == 0,
 		"A desmama deve transferir os bezerros para categorias jovens."
-	)
-	var heat_adaptation_before: float = main_scene.get("herd_genetics")["heat_adaptation"]
-	main_scene.call("_select_offspring_genetics")
-	_check(
-		main_scene.get("herd_genetics")["heat_adaptation"] != heat_adaptation_before,
-		"A seleção deve incorporar a genética dos descendentes ao rebanho."
 	)
 	var cash_before_insemination: int = main_scene.get("cash_balance")
 	main_scene.call("_start_artificial_insemination")

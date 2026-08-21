@@ -1059,6 +1059,43 @@ layout_mode = 2
 disabled = true
 text = "Transferir para Pasto 2"
 
+[node name="RebanhoSeparator" type="HSeparator" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+layout_mode = 2
+
+[node name="RebanhoTitle" type="Label" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.96, 0.82, 0.4, 1)
+theme_override_font_sizes/font_size = 15
+text = "ANIMAIS"
+
+[node name="RebanhoHint" type="Label" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.58, 0.62, 0.48, 1)
+theme_override_font_sizes/font_size = 11
+text = "Selecione um animal para ver detalhes."
+autowrap_mode = 2
+
+[node name="RebanhoList" type="ItemList" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 160)
+layout_mode = 2
+allow_reselect = true
+theme_override_colors/font_color = Color(0.85, 0.88, 0.78, 1)
+theme_override_colors/font_selected_color = Color(0.08, 0.1, 0.06, 1)
+theme_override_colors/font_hovered_color = Color(0.57, 0.78, 0.36, 1)
+theme_override_colors/selection_bg_color = Color(0.45, 0.65, 0.28, 1)
+theme_override_font_sizes/font_size = 12
+allow_search = false
+
+[node name="RebanhoDetailLabel" type="RichTextLabel" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 120)
+layout_mode = 2
+bbcode_enabled = true
+theme_override_colors/default_color = Color(0.85, 0.88, 0.78, 1)
+theme_override_font_sizes/normal_font_size = 12
+scroll_active = false
 [node name="ServiceOrderSeparator" type="HSeparator" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
 layout_mode = 2
 
@@ -1108,13 +1145,6 @@ custom_minimum_size = Vector2(0, 36)
 layout_mode = 2
 disabled = true
 text = "Inseminar matrizes — R$ 1.500"
-
-[node name="SelectGeneticsButton" type="Button" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 36)
-layout_mode = 2
-disabled = true
-text = "Selecionar genética dos jovens"
 
 [node name="SanitarySeparator" type="HSeparator" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
 layout_mode = 2
