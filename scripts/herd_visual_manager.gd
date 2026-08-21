@@ -82,12 +82,15 @@ func sync_herd(
 	var category_sequence := _build_category_sequence(categories)
 	for visual_index in range(visible_count):
 		var animal := _animals[visual_index]
-		var animal_data: Dictionary = (
+var animal_data: Dictionary = (
 			individual_animals[visual_index]
 			if not individual_animals.is_empty()
 			else {}
 		)
-		var source_index := mini(
+	// Include genotype for visual trait display
+	if not animal_data.is_empty() and animal_data.has_key("genotype"):
+		animal_data["genotype_copy"] = animal_data["genotype"].duplicate(true)
+	var source_index := mini(
 			floori(float(visual_index) * float(category_sequence.size()) / float(visible_count)),
 			category_sequence.size() - 1
 		)

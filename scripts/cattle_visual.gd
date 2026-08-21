@@ -100,17 +100,58 @@ func _ready() -> void:
 	_apply_category_visual()
 
 
+var animal_data: Dictionary = {}
+	var genotype := {}
+
 func configure(index: int, new_category: String, animal_data: Dictionary = {}) -> void:
 	animal_index = index
 	animal_id = str(animal_data.get("id", "BOV-%04d" % index))
 	category = new_category if CATEGORY_NAMES.has(new_category) else "cows"
 	breed = str(animal_data.get("breed", "nelore"))
+	genotype = animal_data.get("genotype", {})
 	if not BREED_TEXTURES.has(breed):
 		breed = "nelore"
 	age_days = int(animal_data.get("age_days", 0))
 	weight_kg = float(animal_data.get("weight_kg", 0.0))
 	if is_node_ready():
 		_apply_category_visual()
+		_apply_visual_genotype()
+
+func _apply_visual_genotype() -> void:
+	// Apply coat color based on genotype
+	var coat := genotype.get("coat_color", {})
+	if not coat.is_empty():
+		var locus_1 := coat.get("locus_1", ["W", "W"])
+		// Dominant W = white/light, recessive w = darker color
+		var dominant_count = 0
+		for allele in locus_1:
+			if allele == allele.to_upper():
+				dominant_count += 1
+		// If mostly dominant, use normal breed texture
+		// If mostly recessive, darken or modify
+		if dominant_count >= 2:
+			// Standard breed texture
+			_sprite.modulate = Color.WHITE
+		else:
+			// Slightly modify color for recessive traits
+			_sprite.modulate = Color(0.8, 0.8, 0.8, 1.0)
+	
+	// Apply horn type based on genotype
+	var horn := genotype.get("horn_type", {})
+	if not horn.is_empty():
+		var locus_1 := horn.get("locus_1", ["P", "p"])
+		var has_chifres = false
+		for allele in locus_1:
+			if allele == allele.to_upper() and allele == "P":
+				has_chifres = true
+				break
+		// Visual indication of horn status could be added here
+		// For now, just modulate based on horn type
+		if has_chifres:
+			_sprite.modulate = Color.WHITE
+		else:
+			// Policed animals - slight visual difference
+			_sprite.modulate = Color(0.95, 0.95, 0.95, 1.0)
 
 
 func set_activity(new_activity: String, destination: Vector2, duration: float) -> void:

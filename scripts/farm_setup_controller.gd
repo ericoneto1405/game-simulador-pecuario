@@ -3899,22 +3899,14 @@ func _sync_herd_size() -> void:
 		herd_size += int(herd_categories[category])
 
 
-func calculate_herd_genetics_from_animals() -> void:
+func _update_herd_genotype_averages() -> void:
 	var herd_animal_list: Array = herd_animals.filter(
 		func(a: Dictionary) -> bool: return str(a.get("destiny", "")) == "herd"
 	)
 	if herd_animal_list.is_empty():
 		return
-	var counts := {}
-	for genetic_key in herd_genetics:
-		counts[genetic_key] = 0.0
-	for animal in herd_animal_list:
-		var g: Dictionary = animal.get("genetics", {})
-		for genetic_key in herd_genetics:
-			counts[genetic_key] += float(g.get(genetic_key, herd_genetics[genetic_key]))
-	var n := float(herd_animal_list.size())
-	for genetic_key in herd_genetics:
-		herd_genetics[genetic_key] = clampf(counts[genetic_key] / n, 0.0, 100.0)
+	for trait in GENETIC_TRAITS:
+		herd_genotype_average[trait] = _herd_average_phenotype(trait)
 
 
 func _create_individual_animal(
@@ -3924,10 +3916,19 @@ func _create_individual_animal(
 ) -> Dictionary:
 	var sex := "female" if category in ["female_calves", "heifers", "cows"] else "male"
 	var category_profile := _market_category_profile(category)
+	
+	// Handle legacy "genetics" field for backward compatibility
+	var legacy_genetics := custom_genotype.get("genetics", {})
+	var has_legacy_genetics := not legacy_genetics.is_empty() and legacy_genetics.has_key("fertility")
+	
 	var animal_genotype: Dictionary = (
-		custom_genotype.duplicate(true)
-		if not custom_genotype.is_empty()
-		else _generate_random_genotype(_normalize_breed(custom_breed))
+		if has_legacy_genetics:
+			// Convert legacy genetics to new genotype format
+			_genetics_to_genotype(legacy_genetics, _normalize_breed(custom_breed))
+		else:
+			custom_genotype.duplicate(true)
+			if not custom_genotype.is_empty()
+			else _generate_random_genotype(_normalize_breed(custom_breed))
 	)
 	var animal := {
 		"id": "BOV-%04d" % next_animal_id,
@@ -3952,6 +3953,38 @@ func _create_individual_animal(
 	}
 	next_animal_id += 1
 	return animal
+
+
+func _genetics_to_genotype(legacy_genetics: Dictionary, breed: String) -> Dictionary:
+	// Convert the old 6-trait genetics dictionary to the new polygenic genotype format
+	var genotype := {}
+	for trait in ALL_TRAITS:
+		genotype[trait] := {}
+		var locus_count := 3
+		for locus_idx in range(locus_count):
+			var locus_name := "locus_%d" % (locus_idx + 1)
+			// Map the old value (0-100) to allele dominance
+			// Higher values = more dominant alleles
+			var old_value := float(legacy_genetics.get(trait, 50.0))
+			var dominant_alleles := roundi(old_value / (100.0 / (locus_count * 2)))  // roughly how many dominant alleles
+			var total_alleles := locus_count * 2
+			var recessive_alleles := total_alleles - dominant_alleles
+			
+			// Generate dominant alleles (A) and recessive alleles (a)
+			var loci := {}
+			for i in range(locus_count):
+				var locus_locus_name := "locus_%d" % (i + 1)
+				// Distribute dominant alleles across loci
+				var has_dominant := dominant_alleles > 0
+				dominant_alleles = maxi(dominant_alleles - 1, 0)
+				loci[locus_locus_name] := ["A", "a"]  // default heterozygous
+				if not has_dominant:
+					loci[locus_locus_name] := ["a", "a"]
+				// If we have leftover dominant alleles, make this locus homozygous dominant
+				if dominant_alleles > 0 and i == locus_count - 1:
+					loci[locus_locus_name] := ["A", "A"]
+			genotype[trait] := loci
+	return genotype
 
 
 func _add_individual_animals(
@@ -4113,8 +4146,24 @@ func _herd_genetics_snapshot() -> Dictionary:
 	for trait in GENETIC_TRAITS:
 		snapshot[trait] = _herd_average_phenotype(trait)
 	return snapshot
-	if breed_selector.item_count <= 0:
-		return DEFAULT_CATTLE_BREED
+
+func _create_offspring_genotype(mother: Dictionary, father: Dictionary) -> Dictionary:
+	var offspring_genotype := {}
+	for trait in ALL_TRAITS:
+		offspring_genotype[trait] := {}
+		for locus_idx in range(LOCI_PER_TRAIT):
+			var locus_name := "locus_%d" % (locus_idx + 1)
+			// Mother contributes 1 random allele
+			var mother_alleles := mother["genotype"][trait][locus_name]
+			var maternal_allele := mother_alleles.pick_random()
+			// Father contributes 1 random allele
+			var father_alleles := father["genotype"][trait][locus_name]
+			var paternal_allele := father_alleles.pick_random()
+			// Punnett: combine maternal and paternal alleles
+			offspring_genotype[trait][locus_name] := [maternal_allele, paternal_allele]
+	return offspring_genotype
+
+func _selected_market_breed() -> String:
 	return _normalize_breed(str(breed_selector.get_selected_metadata()))
 
 
@@ -4208,12 +4257,12 @@ func _update_reproduction_ui() -> void:
 			int(herd_categories["steers"]),
 			int(herd_categories["oxen"]),
 			cycle_text,
-			roundi(float(herd_genetics["fertility"])),
-			roundi(float(herd_genetics["calving_ease"])),
-			roundi(float(herd_genetics["maternal_ability"])),
-			roundi(float(herd_genetics["heat_adaptation"])),
-			roundi(float(herd_genetics["parasite_resistance"])),
-			roundi(float(herd_genetics["weight_gain"])),
+			roundi(float(_herd_genetics_snapshot()["fertility"])),
+			roundi(float(_herd_genetics_snapshot()["calving_ease"])),
+			roundi(float(_herd_genetics_snapshot()["maternal_ability"])),
+			roundi(float(_herd_genetics_snapshot()["heat_adaptation"])),
+			roundi(float(_herd_genetics_snapshot()["parasite_resistance"])),
+			roundi(float(_herd_genetics_snapshot()["weight_gain"])),
 		]
 
 	var can_breed_now := (
@@ -4264,10 +4313,7 @@ func _advance_sanitary_day() -> String:
 			int(animal.get("clostridiosis_vaccine_days_remaining", 0)) - 1,
 			0
 		)
-		var animal_genetics: Dictionary = animal.get("genetics", herd_genetics)
-		var parasite_resistance := float(
-			animal_genetics.get("parasite_resistance", herd_genetics["parasite_resistance"])
-		)
+		var parasite_resistance := _calculate_phenotype(animal["genotype"], "parasite_resistance")
 		var parasite_load := clampf(
 			float(animal.get("parasite_load", 0.0))
 			+ _daily_parasite_increase(parasite_resistance),
@@ -4853,7 +4899,7 @@ func _advance_day(silent: bool = false) -> void:
 
 	_update_individual_animals_day(average_weight_kg - previous_average_weight)
 	if herd_created and herd_size > 0:
-		calculate_herd_genetics_from_animals()
+		_update_herd_genotype_averages()
 	if not silent:
 		_refresh_simulation_ui()
 		_update_herd_status(daily_message)
@@ -5339,7 +5385,7 @@ func _update_daily_weather() -> void:
 	)
 	heat_stress = _calculate_heat_stress(
 		max_temperature_c,
-		float(herd_genetics["heat_adaptation"])
+		_herd_average_phenotype("heat_adaptation")
 	)
 
 
@@ -6159,7 +6205,6 @@ func _build_save_data() -> Dictionary:
 		"thirst": thirst,
 		"health": health,
 		"herd_categories": herd_categories.duplicate(true),
-		"herd_genetics": herd_genetics.duplicate(true),
 		"pregnant_females": pregnant_females,
 		"gestation_days_remaining": gestation_days_remaining,
 		"calf_age_days": calf_age_days,
@@ -6254,7 +6299,7 @@ func _restore_saved_game(save_data: Dictionary) -> void:
 	var saved_next_animal_id := int(save_data.get("next_animal_id", 1))
 	var saved_herd_pasture := int(save_data.get("herd_pasture", 1))
 	var saved_categories = save_data.get("herd_categories", {})
-	var saved_genetics = save_data.get("herd_genetics", herd_genetics)
+	var saved_genetics := {}  // Genetics now stored per-animal in herd_animals
 	var saved_pregnant := int(save_data.get("pregnant_females", 0))
 	var saved_gestation_days := int(save_data.get("gestation_days_remaining", 0))
 	var saved_calf_age := int(save_data.get("calf_age_days", -1))
@@ -6484,13 +6529,9 @@ func _restore_saved_game(save_data: Dictionary) -> void:
 				"oxen": 0,
 				"bulls": fallback_bulls,
 			}
-		if saved_genetics is Dictionary:
-			for genetic_key in herd_genetics:
-				herd_genetics[genetic_key] = clampf(
-					float(saved_genetics.get(genetic_key, herd_genetics[genetic_key])),
-					0.0,
-				100.0
-			)
+if saved_genetics is Dictionary and saved_genetics.has_key("herd_genetics"):
+			// Legacy format - ignore, genotype is now per-animal
+			pass
 		herd_animals.clear()
 		next_animal_id = 1
 		if saved_animals is Array and not saved_animals.is_empty():
@@ -6500,7 +6541,7 @@ func _restore_saved_game(save_data: Dictionary) -> void:
 				var saved_category := str(saved_animal.get("category", "heifers"))
 				var restored_animal := _create_individual_animal(
 					saved_category,
-					saved_animal.get("genetics", herd_genetics)
+					saved_animal.get("genotype", {})
 				)
 				for animal_key in saved_animal:
 					restored_animal[animal_key] = saved_animal[animal_key]
