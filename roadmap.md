@@ -129,6 +129,16 @@ A produção agrícola não poderá ser vendida como produto final.
 
 **Conclusão da fase:** o jogador decide onde e como construir, com custo e consequência.
 
+### Evolução da navegação por módulos
+
+**Status: concluída**
+
+- Menu lateral permanente reduzido para 128 px.
+- Fazenda e Loja Rural operam diretamente sobre o mapa.
+- Os demais módulos utilizam uma área de trabalho completa.
+- Ferramentas do mapa são flutuantes e recolhíveis.
+- Rebanho possui retorno temporário ao mapa sem perder o módulo selecionado.
+
 ## Fase 0.6.3 — Representação individual dos bovinos
 
 **Status: concluída**
@@ -224,16 +234,17 @@ A produção agrícola não poderá ser vendida como produto final.
 - Calendário real, com meses corretos, anos bissextos e formato `DD/MM/AAAA HH:MM`.
 - Fonte oficial de data e hora no servidor Web, armazenada em UTC.
 - Exibição e processamento no fuso `America/Bahia`.
-- Tempo contínuo, sem pausa ou aceleração pelo jogador.
+- Tempo controlável por Pausar, Play e Acelerar no header.
+- Play avança um dia por segundo real; Acelerar avança sete dias por segundo real.
 - Relógio único para calendário, ambiente, bovinos, funcionários e obras.
-- Processamento da evolução da fazenda durante o período offline.
+- Processamento de até 30 dias de evolução durante o período offline.
 - Relatório de retorno com mudanças no rebanho, peso, pastagens e água.
 - Obras retomadas ou concluídas conforme o horário oficial registrado.
 - Salvamento automático a cada 60 segundos, ao fechar e ao suspender o jogo.
-- Eventos críticos geram alertas sem interromper o calendário.
+- Eventos críticos geram alertas e pausam o calendário.
 - Migração automática dos salvamentos criados no calendário anterior de 360 dias.
 
-**Conclusão da fase:** a fazenda acompanha a data real e continua evoluindo mesmo quando o jogador está offline.
+**Conclusão da fase:** a fazenda usa uma data simulada, controlada pelo jogador, e recupera até 30 dias quando o jogo fica fechado.
 
 ### Passo 2 — Fonte oficial de data e hora
 
@@ -252,7 +263,7 @@ A produção agrícola não poderá ser vendida como produto final.
 - Dias offline processados em lotes para preservar o desempenho.
 - Resumo das consequências apresentado ao retornar.
 - Obras em andamento persistidas com horário oficial de conclusão.
-- Controles antigos de pausa, 1x, 8x e avanço manual removidos.
+- Controles de Pausar, Play e Acelerar integrados ao relógio único da fazenda.
 
 ## Fase 0.8 — Operação pecuária automática
 

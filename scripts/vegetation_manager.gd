@@ -337,9 +337,9 @@ func visual_color(area_id: int, season: float = 0.5) -> Color:
 		0.0,
 		1.0
 	)
-	// Aplicar estação: temporada seca mantém cores mais apagadas,
-	// temporada de chuva realça cores saudáveis
-	var season_mod := clamp(season, 0.0, 1.0)
+	# Aplicar estação: temporada seca mantém cores mais apagadas,
+	# temporada de chuva realça cores saudáveis
+	var season_mod: float = clampf(season, 0.0, 1.0)
 	var color: Color = Color(definition["dry_color"]).lerp(Color(definition["healthy_color"]), condition * season_mod)
 	color.a = 0.10 + condition * 0.12
 	return color

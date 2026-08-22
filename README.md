@@ -121,6 +121,14 @@ Poço artesiano, bomba solar, reservatório, tubulação e bebedouros foram rese
 - Prévia da construção, custo estimado e cancelamento sem cobrança.
 - Salvamento e carregamento das estruturas construídas.
 
+## Áreas de trabalho dos módulos
+
+- O menu lateral permanente ocupa somente 128 px.
+- Fazenda e Loja Rural mantêm o mapa visível com ferramentas flutuantes recolhíveis.
+- Dashboard, Estruturas, Rebanho, Produção, Mercado e Financeiro usam a área completa.
+- O Rebanho pode abrir o mapa temporariamente para visualizar o lote ou selecionar um animal.
+- O botão “Voltar ao mapa” restaura o último módulo cartográfico utilizado.
+
 ## Representação dos bovinos 0.6.3 e 0.6.4
 
 - Cada bovino possui identificação, sexo, idade, categoria, peso, genética e raça.
@@ -191,13 +199,15 @@ Se alguma estrutura estiver faltando, o Mercado informa o próximo passo sem blo
 
 - Relógio central no header.
 - Calendário real, com meses de duração correta e anos bissextos.
-- Data e hora exibidas como `DD/MM/AAAA HH:MM` no fuso `America/Bahia`.
-- O tempo da fazenda não pode ser pausado nem acelerado.
-- O servidor Web fornece o horário oficial, sem depender do relógio do jogador.
-- Clima, pastagens, água, bovinos e serviços avançam a cada novo dia real.
-- O período em que o jogo fica fechado também é processado.
+- Data inicial definida pelo horário oficial no fuso `America/Bahia`.
+- Controles no header para pausar, jogar e acelerar.
+- No modo Play, um segundo real representa um dia no jogo.
+- No modo Acelerar, um segundo real representa sete dias no jogo.
+- Clima, pastagens, água, bovinos, serviços e obras seguem o mesmo relógio da partida.
+- O período fechado avança no ritmo Play, limitado a 30 dias por retorno.
 - Ao retornar, o jogador recebe um resumo das mudanças ocorridas offline.
-- Obras em andamento guardam o horário de conclusão e continuam durante o período fechado.
+- Eventos críticos pausam o tempo automaticamente e geram um alerta.
+- Obras em andamento pausam e aceleram junto com a fazenda.
 - Salvamento automático a cada 60 segundos e ao fechar ou suspender o jogo.
 - Partidas antigas de 360 dias são convertidas automaticamente.
 
@@ -205,10 +215,11 @@ Se alguma estrutura estiver faltando, o Mercado informa o próximo passo sem blo
 
 - A versão Web consulta `GET /api/time` no mesmo servidor do jogo.
 - O servidor armazena o horário em UTC e entrega a representação de `America/Bahia`.
-- O header exibe `DD/MM/AAAA HH:MM` sem usar a data do computador do jogador.
-- O salvamento registra o timestamp UTC oficial e o último dia processado.
+- O servidor define a data inicial e mede o período fechado sem usar a data do computador.
+- O header exibe a data simulada em `DD/MM/AAAA HH:MM`.
+- O salvamento registra o timestamp do jogo, o modo selecionado e o UTC oficial.
 - O horário é sincronizado novamente a cada cinco minutos.
-- A fazenda recupera os dias transcorridos em blocos para não travar o navegador.
+- A fazenda recupera até 30 dias em blocos para não travar o navegador.
 
 ## Operação pecuária automática 0.8.1
 

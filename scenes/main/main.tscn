@@ -1,4 +1,4 @@
-[gd_scene load_steps=29 format=3]
+[gd_scene load_steps=32 format=3]
 
 [ext_resource type="Script" path="res://scripts/camera_controller.gd" id="1_camera"]
 [ext_resource type="Script" path="res://scripts/farm_setup_controller.gd" id="2_farm"]
@@ -17,6 +17,9 @@
 [ext_resource type="Script" path="res://scripts/construction_worker_animation.gd" id="15_worker_animation"]
 [ext_resource type="Texture2D" path="res://assets/water/pond-water.png" id="16_pond_water"]
 [ext_resource type="Texture2D" path="res://assets/water/river-natural-overlay.png" id="17_river_water"]
+[ext_resource type="Texture2D" path="res://assets/ui/icons/pause.svg" id="18_pause"]
+[ext_resource type="Texture2D" path="res://assets/ui/icons/play.svg" id="19_play"]
+[ext_resource type="Texture2D" path="res://assets/ui/icons/fast-forward.svg" id="20_fast_forward"]
 
 [sub_resource type="Shader" id="ShaderRiverLevel"]
 code = "shader_type canvas_item;\n\nuniform float water_level : hint_range(0.0, 1.0) = 0.65;\n\nvoid fragment() {\n\tvec4 river = texture(TEXTURE, UV);\n\tfloat threshold = mix(0.96, 0.08, water_level);\n\tfloat coverage = smoothstep(threshold - 0.08, threshold + 0.08, river.a);\n\tfloat level_alpha = mix(0.55, 0.95, water_level);\n\tCOLOR = vec4(river.rgb, coverage * level_alpha);\n}\n"
@@ -356,6 +359,41 @@ theme_override_font_sizes/font_size = 14
 text = "01/11/0001 00:00 | Chuvoso • Seco | 33°C"
 vertical_alignment = 1
 
+[node name="TimeControls" type="HBoxContainer" parent="Interface/MainLayout/Header/HeaderMargin/HeaderRow"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="PauseTimeButton" type="Button" parent="Interface/MainLayout/Header/HeaderMargin/HeaderRow/TimeControls"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(34, 34)
+layout_mode = 2
+tooltip_text = "Pausar — congela o tempo da fazenda"
+toggle_mode = true
+button_pressed = true
+icon = ExtResource("18_pause")
+expand_icon = true
+icon_max_width = 20
+
+[node name="PlayTimeButton" type="Button" parent="Interface/MainLayout/Header/HeaderMargin/HeaderRow/TimeControls"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(34, 34)
+layout_mode = 2
+tooltip_text = "Play — 1 segundo real equivale a 1 dia no jogo"
+toggle_mode = true
+icon = ExtResource("19_play")
+expand_icon = true
+icon_max_width = 20
+
+[node name="FastTimeButton" type="Button" parent="Interface/MainLayout/Header/HeaderMargin/HeaderRow/TimeControls"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(34, 34)
+layout_mode = 2
+tooltip_text = "Acelerar — 1 segundo real equivale a 7 dias no jogo"
+toggle_mode = true
+icon = ExtResource("20_fast_forward")
+expand_icon = true
+icon_max_width = 20
+
 [node name="CashStatus" type="Label" parent="Interface/MainLayout/Header/HeaderMargin/HeaderRow"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(115, 0)
@@ -397,7 +435,7 @@ theme_override_constants/separation = 0
 mouse_filter = 2
 
 [node name="Sidebar" type="Control" parent="Interface/MainLayout/Body"]
-custom_minimum_size = Vector2(360, 0)
+custom_minimum_size = Vector2(128, 0)
 layout_mode = 2
 theme = ExtResource("3_ui_theme")
 
@@ -445,6 +483,7 @@ horizontal_alignment = 1
 vertical_alignment = 1
 
 [node name="ModuleHeader" type="Panel" parent="Interface/MainLayout/Body/Sidebar"]
+unique_name_in_owner = true
 layout_mode = 1
 anchor_right = 1.0
 offset_left = 136.0
@@ -462,7 +501,7 @@ grow_horizontal = 2
 grow_vertical = 2
 theme_override_constants/margin_left = 12
 theme_override_constants/margin_top = 10
-theme_override_constants/margin_right = 10
+theme_override_constants/margin_right = 120
 theme_override_constants/margin_bottom = 8
 
 [node name="ModuleHeaderContent" type="VBoxContainer" parent="Interface/MainLayout/Body/Sidebar/ModuleHeader/ModuleHeaderMargin"]
@@ -483,6 +522,20 @@ theme_override_colors/font_color = Color(0.67, 0.7, 0.61, 1)
 theme_override_font_sizes/font_size = 11
 text = "Visão geral da propriedade"
 autowrap_mode = 2
+
+[node name="ModuleCloseButton" type="Button" parent="Interface/MainLayout/Body/Sidebar/ModuleHeader"]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -108.0
+offset_top = 10.0
+offset_right = -10.0
+offset_bottom = 48.0
+grow_horizontal = 0
+text = "Recolher"
+tooltip_text = "Recolher as ferramentas e liberar o mapa"
 
 [node name="ModuleActions" type="Panel" parent="Interface/MainLayout/Body/Sidebar"]
 unique_name_in_owner = true
@@ -542,6 +595,7 @@ disabled = true
 text = "Cancelar"
 
 [node name="SidebarMargin" type="MarginContainer" parent="Interface/MainLayout/Body/Sidebar"]
+unique_name_in_owner = true
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
@@ -1050,7 +1104,8 @@ unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 36)
 layout_mode = 2
 disabled = true
-text = "Selecionar lote"
+text = "Ver lote no mapa"
+tooltip_text = "Abrir o mapa para visualizar o lote ou selecionar um animal"
 
 [node name="TransferHerdButton" type="Button" parent="Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"]
 unique_name_in_owner = true
@@ -1539,6 +1594,77 @@ grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 2
 theme_override_styles/panel = SubResource("StyleMapFrame")
+
+[node name="ModuleWorkspace" type="Panel" parent="Interface/MainLayout/Body/Content"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_styles/panel = SubResource("StyleSidebar")
+
+[node name="MapPalette" type="Panel" parent="Interface/MainLayout/Body/Content"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 1
+anchor_bottom = 1.0
+offset_left = 16.0
+offset_top = 16.0
+offset_right = 336.0
+offset_bottom = -16.0
+grow_vertical = 2
+clip_contents = true
+theme_override_styles/panel = SubResource("StyleFarmCard")
+
+[node name="MapPaletteOpenButton" type="Button" parent="Interface/MainLayout/Body/Content"]
+unique_name_in_owner = true
+layout_mode = 1
+offset_left = 16.0
+offset_top = 16.0
+offset_right = 196.0
+offset_bottom = 58.0
+text = "Abrir Fazenda"
+tooltip_text = "Abrir as ferramentas do módulo atual"
+
+[node name="MapInteractionBar" type="PanelContainer" parent="Interface/MainLayout/Body/Content"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 1
+anchors_preset = 10
+anchor_right = 1.0
+offset_left = 270.0
+offset_top = 16.0
+offset_right = -270.0
+offset_bottom = 70.0
+grow_horizontal = 2
+theme_override_styles/panel = SubResource("StyleFarmCard")
+
+[node name="Margin" type="MarginContainer" parent="Interface/MainLayout/Body/Content/MapInteractionBar"]
+layout_mode = 2
+theme_override_constants/margin_left = 12
+theme_override_constants/margin_top = 8
+theme_override_constants/margin_right = 8
+theme_override_constants/margin_bottom = 8
+
+[node name="Row" type="HBoxContainer" parent="Interface/MainLayout/Body/Content/MapInteractionBar/Margin"]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="MapInteractionLabel" type="Label" parent="Interface/MainLayout/Body/Content/MapInteractionBar/Margin/Row"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+text = "REBANHO NO MAPA — clique em um animal para ver os detalhes"
+vertical_alignment = 1
+
+[node name="ReturnToModuleButton" type="Button" parent="Interface/MainLayout/Body/Content/MapInteractionBar/Margin/Row"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(150, 36)
+layout_mode = 2
+text = "Voltar ao Rebanho"
 
 [node name="TerrainTooltip" type="PanelContainer" parent="Interface"]
 unique_name_in_owner = true

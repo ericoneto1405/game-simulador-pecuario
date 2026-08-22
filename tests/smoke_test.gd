@@ -19,12 +19,52 @@ func _run() -> void:
 		"offset_seconds": -10800,
 		"local": {"year": 2026, "month": 8, "day": 5, "hour": 12, "minute": 30, "second": 0},
 	})
+	empty_farm_scene.set("game_unix_time", float(official_unix))
+	empty_farm_scene.set("game_time_initialized", true)
+	empty_farm_scene.call("_set_calendar_from_game_unix")
+	var time_mode_constants: Dictionary = empty_farm_scene.get_script().get_script_constant_map()["TimeMode"]
+	var initial_game_time := float(empty_farm_scene.get("game_unix_time"))
+	var initial_game_day := int(empty_farm_scene.get("current_day"))
+	empty_farm_scene.call("_set_time_mode", time_mode_constants["PAUSED"])
+	empty_farm_scene.call("_advance_game_clock", 1.0)
+	_check(
+		is_equal_approx(float(empty_farm_scene.get("game_unix_time")), initial_game_time),
+		"Pausar deve congelar o relógio da partida."
+	)
+	empty_farm_scene.call("_set_time_mode", time_mode_constants["PLAY"])
+	empty_farm_scene.call("_advance_game_clock", 1.0)
+	_check(
+		is_equal_approx(
+			float(empty_farm_scene.get("game_unix_time")), initial_game_time + 86400.0
+		)
+		and empty_farm_scene.get("current_day") == initial_game_day + 1,
+		"Play deve avançar um dia do jogo por segundo real."
+	)
+	var fast_start_time := float(empty_farm_scene.get("game_unix_time"))
+	var fast_start_day := int(empty_farm_scene.get("current_day"))
+	empty_farm_scene.call("_set_time_mode", time_mode_constants["FAST"])
+	empty_farm_scene.call("_advance_game_clock", 1.0)
+	_check(
+		is_equal_approx(
+			float(empty_farm_scene.get("game_unix_time")), fast_start_time + 604800.0
+		)
+		and empty_farm_scene.get("current_day") == fast_start_day + 7,
+		"Acelerar deve avançar sete dias do jogo por segundo real."
+	)
+	empty_farm_scene.call("_set_time_mode", time_mode_constants["PAUSED"])
 	_check(
 		empty_farm_scene.call(
 			"_days_between_server_dates", official_unix - 2 * 86400, official_unix
 		) == 2,
 		"O relógio oficial deve calcular os dias transcorridos sem usar aceleração."
 	)
+	empty_farm_scene.set("last_saved_real_unix_utc", official_unix - 100)
+	empty_farm_scene.call("_schedule_offline_progress")
+	_check(
+		empty_farm_scene.get("offline_days_pending") == 30,
+		"O avanço offline deve ser limitado a 30 dias do jogo."
+	)
+	empty_farm_scene.set("offline_days_pending", 0)
 	var empty_farm_day := int(empty_farm_scene.get("current_day"))
 	empty_farm_scene.set("offline_days_pending", 31)
 	empty_farm_scene.set("offline_days_total", 31)
@@ -63,8 +103,14 @@ func _run() -> void:
 		var responsive_sidebar_rect := sidebar.get_global_rect()
 		_check(
 			is_equal_approx(header.size.y, 76.0)
-			and is_equal_approx(sidebar.size.x, 360.0),
-			"A estrutura-base deve manter header de 76 px e menu de 360 px em %dx%d."
+			and is_equal_approx(sidebar.size.x, 128.0),
+			"A estrutura-base deve manter header de 76 px e menu de 128 px em %dx%d."
+			% [viewport_size.x, viewport_size.y]
+		)
+		var time_controls: Control = header.get_node("HeaderMargin/HeaderRow/TimeControls")
+		_check(
+			responsive_header_rect.encloses(time_controls.get_global_rect()),
+			"Os controles de tempo devem permanecer dentro do header em %dx%d."
 			% [viewport_size.x, viewport_size.y]
 		)
 		_check(
@@ -134,9 +180,7 @@ func _run() -> void:
 		"O zoom não deve afastar a fazenda além da área central."
 	)
 
-	var sidebar_scroll: ScrollContainer = main_scene.get_node(
-		"Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll"
-	)
+	var sidebar_scroll: ScrollContainer = main_scene.get("sidebar_scroll")
 	var sidebar_wheel := InputEventMouseButton.new()
 	sidebar_wheel.button_index = MOUSE_BUTTON_WHEEL_UP
 	sidebar_wheel.pressed = true
@@ -183,18 +227,10 @@ func _run() -> void:
 		"A câmera não deve revelar espaço fora da fazenda."
 	)
 
-	var farm_panel: Label = main_scene.get_node(
-		"Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent/FarmAlertCard/Margin/FarmPanel"
-	)
-	var farm_selector: OptionButton = main_scene.get_node(
-		"Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent/FarmPastureSelector"
-	)
-	var water_layer_button: CheckButton = main_scene.get_node(
-		"Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent/FarmWaterLayerButton"
-	)
-	var structures_layer_button: CheckButton = main_scene.get_node(
-		"Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent/FarmStructuresLayerButton"
-	)
+	var farm_panel: Label = main_scene.get("farm_panel")
+	var farm_selector: OptionButton = main_scene.get("farm_pasture_selector")
+	var water_layer_button: CheckButton = main_scene.get("farm_water_layer_button")
+	var structures_layer_button: CheckButton = main_scene.get("farm_structures_layer_button")
 	var terrain_info_button: CheckButton = main_scene.get_node("%FarmTerrainInfoButton")
 	var terrain_tooltip: PanelContainer = main_scene.get_node("%TerrainTooltip")
 	var terrain_tooltip_label: Label = main_scene.get_node("%TerrainTooltipLabel")
@@ -205,15 +241,9 @@ func _run() -> void:
 		"O módulo Fazenda deve destacar somente o próximo problema real."
 	)
 	_check(
-		not main_scene.has_node(
-			"Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent/FarmIdentityCard"
-		)
-		and not main_scene.has_node(
-			"Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent/FarmStats"
-		)
-		and not main_scene.has_node(
-			"Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent/FarmPastureCard"
-		),
+		main_scene.find_child("FarmIdentityCard", true, false) == null
+		and main_scene.find_child("FarmStats", true, false) == null
+		and main_scene.find_child("FarmPastureCard", true, false) == null,
 		"O módulo Fazenda não deve exibir os três quadros redundantes."
 	)
 	terrain_info_button.button_pressed = true
@@ -327,9 +357,7 @@ func _run() -> void:
 		individual_herd.all(func(animal: Dictionary) -> bool: return animal["breed"] == "nelore"),
 		"O cenário-base deve registrar a raça de cada bovino."
 	)
-	var breed_selector: OptionButton = main_scene.get_node(
-		"Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent/BreedSelector"
-	)
+	var breed_selector: OptionButton = main_scene.get("breed_selector")
 	_check(
 		breed_selector.item_count == 11,
 		"O Mercado deve disponibilizar as onze raças com identidade visual."
@@ -446,13 +474,15 @@ func _run() -> void:
 	}
 	_check(
 		main_scene.call("_apply_server_time_payload", official_time_payload)
-		and main_scene.call("_formatted_server_datetime") == "05/08/2026 12:30"
 		and main_scene.get("server_clock_synchronized"),
-		"O jogo deve validar e exibir o horário oficial no fuso America/Bahia."
+		"O jogo deve validar o horário oficial no fuso America/Bahia."
 	)
-	main_scene.call(
-		"_set_calendar_from_server_unix",
-		main_scene.call("_current_server_unix_utc")
+	main_scene.set("game_unix_time", float(official_time_payload["unix_utc"]))
+	main_scene.set("game_time_initialized", true)
+	main_scene.call("_set_calendar_from_game_unix")
+	_check(
+		main_scene.call("_formatted_game_datetime") == "05/08/2026 12:30",
+		"O header deve exibir a data simulada no fuso America/Bahia."
 	)
 	main_scene.set("weather_condition", "Seco")
 	main_scene.call("_update_climate_visuals")
@@ -498,16 +528,21 @@ func _run() -> void:
 	)
 
 	_check(
-		not main_scene.has_node("%PauseTimeButton")
-		and not main_scene.has_node("%NormalTimeButton")
-		and not main_scene.has_node("%FastTimeButton"),
-		"Pausa, 1x e 8x não devem permanecer na interface."
+		main_scene.has_node("%PauseTimeButton")
+		and main_scene.has_node("%PlayTimeButton")
+		and main_scene.has_node("%FastTimeButton")
+		and main_scene.get_node("%PauseTimeButton").icon != null
+		and main_scene.get_node("%PlayTimeButton").icon != null
+		and main_scene.get_node("%FastTimeButton").icon != null,
+		"Pausar, Play e Acelerar devem aparecer no header com SVGs."
 	)
 	main_scene.set("health", 19.0)
 	main_scene.call("_report_critical_event")
 	_check(
-		"Alerta da fazenda" in main_scene.get("save_status").text,
-		"Um evento crítico deve gerar alerta sem interromper o calendário."
+		"Alerta da fazenda" in main_scene.get("save_status").text
+		and "Tempo pausado" in main_scene.get("save_status").text
+		and int(main_scene.get("time_mode")) == time_mode_constants["PAUSED"],
+		"Um evento crítico deve gerar alerta e pausar o calendário."
 	)
 	main_scene.set("health", 100.0)
 
@@ -573,7 +608,7 @@ func _run() -> void:
 	_check(main_scene.get("feeding_plan_days_remaining") == 6, "O trato programado deve diminuir a cada dia.")
 
 	var save_data: Dictionary = main_scene.call("_build_save_data")
-	_check(save_data.get("version") == 19, "O salvamento deve incluir o sistema de vegetação.")
+	_check(save_data.get("version") == 20, "O salvamento deve incluir o sistema de vegetação.")
 	_check(
 		save_data.has("vegetation_state")
 		and save_data["vegetation_state"].get("areas", {}).size() == 2,
@@ -609,10 +644,12 @@ func _run() -> void:
 		"Uma área severamente degradada não deve se recuperar apenas com poucos dias de descanso."
 	)
 	_check(
-		save_data.get("server_unix_utc_at_save") >= 1785943800
+		save_data.get("game_unix_time") > 0
+		and save_data.has("time_mode")
+		and save_data.get("real_unix_utc_at_save") >= 1785943800
 		and save_data.has("last_processed_server_unix_utc")
 		and save_data.get("server_timezone") == "America/Bahia",
-		"O salvamento deve registrar o horário oficial e o último dia processado em UTC."
+		"O salvamento deve registrar o relógio do jogo e a referência oficial em UTC."
 	)
 	_check(save_data.get("cash_balance") == 40575, "O salvamento deve incluir o saldo financeiro.")
 	_check(save_data.get("transaction_history", []).size() == 8, "O histórico financeiro deve ser salvo.")
@@ -741,8 +778,8 @@ func _run() -> void:
 	version_15_save["day_of_year"] = 60
 	main_scene.call("_restore_saved_game", version_15_save)
 	_check(
-		main_scene.get("day_of_year") == 60,
-		"Partidas da versão 15 não devem repetir a migração do calendário."
+		main_scene.get("day_of_year") == 217,
+		"Partidas anteriores ao relógio simulado devem usar o último UTC oficial salvo."
 	)
 	main_scene.call("_restore_saved_game", save_data)
 	var legacy_save: Dictionary = save_data.duplicate(true)
@@ -996,6 +1033,7 @@ func _run() -> void:
 	var free_build_scene: Node = load("res://scenes/main/main.tscn").instantiate()
 	root.add_child(free_build_scene)
 	await process_frame
+	_initialize_game_time(free_build_scene, official_unix)
 	var module_names := [
 		"dashboard", "farm", "structures", "store",
 		"herd", "production", "market", "finance",
@@ -1027,16 +1065,53 @@ func _run() -> void:
 			and module_buttons[module_index].button_pressed,
 			"O menu deve selecionar somente o módulo %s." % module_names[module_index]
 		)
+	var workspace_modes: Dictionary = free_build_scene.get_script().get_script_constant_map()["WorkspaceMode"]
+	free_build_scene.call("_show_module", "farm")
 	_check(
-		not free_build_scene.has_node(
-			"Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent/OpenStoreButton"
-		),
+		free_build_scene.get("workspace_mode") == workspace_modes["MAP"]
+		and not free_build_scene.get("module_workspace").visible
+		and free_build_scene.get("map_palette").visible,
+		"A Fazenda deve manter o mapa com ferramentas flutuantes."
+	)
+	free_build_scene.call("_on_module_close_pressed")
+	_check(
+		not free_build_scene.get("map_palette").visible
+		and free_build_scene.get("map_palette_open_button").visible,
+		"As ferramentas da Fazenda devem ser recolhíveis sem reduzir o mapa."
+	)
+	free_build_scene.call("_open_map_palette")
+	free_build_scene.call("_show_module", "structures")
+	_check(
+		free_build_scene.get("workspace_mode") == workspace_modes["FULL_MODULE"]
+		and free_build_scene.get("module_workspace").visible
+		and not free_build_scene.get("map_palette").visible,
+		"Estruturas deve ocupar a área completa de trabalho."
+	)
+	free_build_scene.call("_on_module_close_pressed")
+	_check(
+		free_build_scene.get("current_module") == "farm",
+		"Voltar ao mapa deve restaurar o último módulo cartográfico."
+	)
+	free_build_scene.call("_show_module", "herd")
+	free_build_scene.call("_select_herd_lot")
+	_check(
+		free_build_scene.get("workspace_mode") == workspace_modes["MAP_INTERACTION"]
+		and free_build_scene.get("map_interaction_bar").visible
+		and not free_build_scene.get("module_workspace").visible,
+		"O Rebanho deve possuir um modo temporário de interação com o mapa."
+	)
+	free_build_scene.call("_return_from_map_interaction")
+	_check(
+		free_build_scene.get("current_module") == "herd"
+		and free_build_scene.get("module_workspace").visible,
+		"O modo temporário do mapa deve retornar ao Rebanho."
+	)
+	_check(
+		free_build_scene.find_child("OpenStoreButton", true, false) == null,
 		"O módulo Estruturas não deve duplicar o acesso à Loja Rural."
 	)
 	_check(
-		not free_build_scene.has_node(
-			"Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent/GateToggleButton"
-		),
+		free_build_scene.find_child("GateToggleButton", true, false) == null,
 		"O módulo Estruturas não deve controlar porteiras por botão."
 	)
 	free_build_scene.call("_show_module", "structures")
@@ -1046,35 +1121,25 @@ func _run() -> void:
 		"O módulo Estruturas vazio deve permanecer limpo."
 	)
 	_check(
-		not free_build_scene.has_node(
-			"Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent/AddHerdButton"
-		),
+		free_build_scene.find_child("AddHerdButton", true, false) == null,
 		"O módulo Rebanho não deve oferecer inclusão gratuita de animais."
 	)
 	free_build_scene.call("_show_module", "production")
 	await process_frame
-	var production_scroll: ScrollContainer = free_build_scene.get_node(
-		"Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll"
-	)
-	var production_content: VBoxContainer = free_build_scene.get_node(
-		"Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent"
-	)
+	var production_scroll: ScrollContainer = free_build_scene.get("sidebar_scroll")
+	var production_content: VBoxContainer = free_build_scene.get("sidebar_content")
 	_check(
 		production_content.size.x <= production_scroll.size.x + 1.0,
-		"O módulo Produção deve permanecer dentro do painel contextual."
+		"O módulo Produção deve permanecer dentro da área de trabalho."
 	)
 	free_build_scene.call("_show_module", "dashboard")
 	_check(
-		free_build_scene.get_node(
-			"Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent/DashboardPanel"
-		).visible,
+		free_build_scene.get("dashboard_panel").visible,
 		"O módulo Dashboard deve exibir a indicação Em breve."
 	)
 	free_build_scene.call("_show_module", "store")
 	_check(
-		free_build_scene.get_node(
-			"Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent/StoreStatusCard/StoreStatus"
-		).visible,
+		free_build_scene.get("store_status").visible,
 		"A Loja Rural deve possuir um painel próprio."
 	)
 	_check(
@@ -1291,9 +1356,21 @@ func _run() -> void:
 	var pending_job_save: Dictionary = free_build_scene.call("_build_save_data")
 	_check(
 		pending_job_save.get("construction_job", {}).get("data", {}).get("kind") == "fence"
-		and pending_job_save.get("construction_job", {}).get("remaining_seconds", 0.0) > 0.0,
+		and pending_job_save.get("construction_job", {}).get("remaining_play_seconds", 0.0) > 0.0
+		and pending_job_save.get("construction_job", {}).get("completes_game_unix_time", 0) > 0,
 		"Uma obra em andamento deve guardar sua tarefa e o tempo restante."
 	)
+	var construction_worker: AnimatedSprite2D = free_build_scene.get("construction_worker_1")
+	_check(
+		is_zero_approx(construction_worker.speed_scale),
+		"Uma obra deve permanecer congelada com o tempo pausado."
+	)
+	free_build_scene.call("_set_time_mode", time_mode_constants["FAST"])
+	_check(
+		is_equal_approx(construction_worker.speed_scale, 7.0),
+		"A equipe da obra deve acompanhar o modo Acelerar."
+	)
+	free_build_scene.call("_set_time_mode", time_mode_constants["PAUSED"])
 	free_build_scene.call("_reset_construction_visuals")
 	free_build_scene.call("_restore_saved_game", pending_job_save)
 	_check(
@@ -1349,6 +1426,8 @@ func _run() -> void:
 	var full_perimeter_scene: Node = load("res://scenes/main/main.tscn").instantiate()
 	root.add_child(full_perimeter_scene)
 	await process_frame
+	_initialize_game_time(full_perimeter_scene, official_unix)
+	full_perimeter_scene.call("_set_time_mode", time_mode_constants["PLAY"])
 	var full_perimeter_cost: int = full_perimeter_scene.call("_full_farm_perimeter_cost")
 	var cash_before_full_perimeter: int = full_perimeter_scene.get("cash_balance")
 	full_perimeter_scene.call("_build_full_farm_perimeter")
@@ -1434,3 +1513,11 @@ func _check(condition: bool, message: String) -> void:
 
 	failures += 1
 	push_error("FALHA: %s" % message)
+
+
+func _initialize_game_time(scene: Node, unix_utc: int) -> void:
+	scene.set("server_utc_offset_seconds", -10800)
+	scene.set("game_unix_time", float(unix_utc))
+	scene.set("game_time_initialized", true)
+	scene.call("_set_calendar_from_game_unix")
+	scene.call("_set_time_mode", 0)

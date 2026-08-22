@@ -9,6 +9,11 @@ extends Camera2D
 @export var farm_size := Vector2(3200.0, 1800.0)
 
 @onready var map_frame: Control = $"../Interface/MainLayout/Body/Content/MapFrame"
+@onready var module_workspace: Control = $"../Interface/MainLayout/Body/Content/ModuleWorkspace"
+@onready var map_palette: Control = $"../Interface/MainLayout/Body/Content/MapPalette"
+@onready var map_palette_open_button: Control = $"../Interface/MainLayout/Body/Content/MapPaletteOpenButton"
+@onready var map_interaction_bar: Control = $"../Interface/MainLayout/Body/Content/MapInteractionBar"
+@onready var module_actions: Control = %ModuleActions
 
 var last_map_rect := Rect2()
 var fit_queued := false
@@ -150,7 +155,18 @@ func _clamp_position_to_map() -> void:
 
 
 func _is_screen_point_over_map(screen_position: Vector2) -> bool:
-	return map_frame.get_global_rect().has_point(screen_position)
+	if not map_frame.get_global_rect().has_point(screen_position):
+		return false
+	for overlay in [
+		module_workspace,
+		map_palette,
+		map_palette_open_button,
+		map_interaction_bar,
+		module_actions,
+	]:
+		if overlay.visible and overlay.get_global_rect().has_point(screen_position):
+			return false
+	return true
 
 
 func _map_center_on_screen() -> Vector2:

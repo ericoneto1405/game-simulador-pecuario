@@ -18,6 +18,29 @@ enum BuildMode {
 	SCALE,
 }
 
+enum TimeMode {
+	PAUSED,
+	PLAY,
+	FAST,
+}
+
+enum WorkspaceMode {
+	MAP,
+	FULL_MODULE,
+	MAP_INTERACTION,
+}
+
+const MODULE_PRESENTATION := {
+	"dashboard": WorkspaceMode.FULL_MODULE,
+	"farm": WorkspaceMode.MAP,
+	"structures": WorkspaceMode.FULL_MODULE,
+	"store": WorkspaceMode.MAP,
+	"herd": WorkspaceMode.FULL_MODULE,
+	"production": WorkspaceMode.FULL_MODULE,
+	"market": WorkspaceMode.FULL_MODULE,
+	"finance": WorkspaceMode.FULL_MODULE,
+}
+
 const FARM_WIDTH := 3200.0
 const FARM_HEIGHT := 1800.0
 const FARM_AREA_BAHIA_TASKS := 595.0
@@ -31,12 +54,16 @@ const VERTICAL_MIN := 950.0
 const VERTICAL_MAX := 2150.0
 const GATE_LENGTH := 24.0
 var save_path: String
-const SAVE_VERSION := 19
+const SAVE_VERSION := 20
 const CALENDAR_365_SAVE_VERSION := 15
 const SERVER_TIME_SYNC_INTERVAL_SECONDS := 300.0
 const AUTO_SAVE_INTERVAL_SECONDS := 60.0
 const OFFLINE_DAYS_PER_FRAME := 30
+const MAX_OFFLINE_GAME_DAYS := 30
+const GAME_SECONDS_PER_REAL_SECOND_PLAY := 86400.0
+const GAME_SECONDS_PER_REAL_SECOND_FAST := 604800.0
 const FARM_TIMEZONE := "America/Bahia"
+const FARM_UTC_OFFSET_SECONDS := -10800
 const CLIMATE_ICON_DROUGHT := preload("res://assets/ui/icons/climate-drought.svg")
 const CLIMATE_ICON_TRANSITION := preload("res://assets/ui/icons/climate-transition.svg")
 const CLIMATE_ICON_RAINY := preload("res://assets/ui/icons/climate-rainy.svg")
@@ -270,6 +297,9 @@ var farm_visual_boundary := PackedVector2Array([
 @onready var use_feed_reserve_button: Button = %UseFeedReserveButton
 @onready var climate_icon: TextureRect = %ClimateIcon
 @onready var climate_status: Label = %ClimateStatus
+@onready var pause_time_button: Button = %PauseTimeButton
+@onready var play_time_button: Button = %PlayTimeButton
+@onready var fast_time_button: Button = %FastTimeButton
 @onready var cash_status: Label = %CashStatus
 @onready var finance_status: Label = %FinanceStatus
 @onready var save_button: Button = %SaveButton
@@ -280,9 +310,17 @@ var farm_visual_boundary := PackedVector2Array([
 @onready var sidebar_content: VBoxContainer = $Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent
 @onready var sidebar_margin: MarginContainer = $Interface/MainLayout/Body/Sidebar/SidebarMargin
 @onready var sidebar_scroll: ScrollContainer = $Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll
+@onready var module_header: Panel = %ModuleHeader
 @onready var module_title: Label = %ModuleTitle
 @onready var module_description: Label = %ModuleDescription
+@onready var module_close_button: Button = %ModuleCloseButton
 @onready var module_actions: Panel = %ModuleActions
+@onready var content_workspace: Control = $Interface/MainLayout/Body/Content
+@onready var module_workspace: Panel = %ModuleWorkspace
+@onready var map_palette: Panel = %MapPalette
+@onready var map_palette_open_button: Button = %MapPaletteOpenButton
+@onready var map_interaction_bar: PanelContainer = %MapInteractionBar
+@onready var return_to_module_button: Button = %ReturnToModuleButton
 @onready var construction_mode_label: Label = %ConstructionModeLabel
 @onready var dashboard_module_button: Button = %DashboardModuleButton
 @onready var farm_module_button: Button = %FarmModuleButton
@@ -354,6 +392,15 @@ var gate_center_position := 0.0
 var herd_created := false
 var herd_size := 0
 var herd_animals: Array[Dictionary] = []
+var herd_categories := {
+	"female_calves": 0,
+	"male_calves": 0,
+	"heifers": 0,
+	"cows": 0,
+	"steers": 0,
+	"oxen": 0,
+	"bulls": 0,
+}
 var next_animal_id := 1
 var herd_pasture := 1
 var pasture_1_center := Vector2.ZERO
@@ -364,17 +411,24 @@ var current_year := 1
 var server_clock_synchronized := false
 var server_time_request_in_flight := false
 var server_unix_utc_anchor := 0
-var server_utc_offset_seconds := 0
+var server_utc_offset_seconds := FARM_UTC_OFFSET_SECONDS
 var server_sync_ticks_msec := 0
 var server_sync_accumulator := 0.0
 var server_display_accumulator := 0.0
 var auto_save_accumulator := 0.0
+var game_unix_time := 0.0
+var game_time_initialized := false
+var time_mode: TimeMode = TimeMode.PAUSED
+var last_saved_real_unix_utc := 0
 var last_processed_server_unix_utc := 0
 var offline_target_server_unix_utc := 0
 var offline_days_pending := 0
 var offline_days_total := 0
+var offline_days_processed := 0
+var offline_report_note := ""
 var offline_summary_before: Dictionary = {}
 var startup_save_checked := false
+var offline_progress_check_pending := false
 var forage := {1: 100.0, 2: 100.0}
 var average_weight_kg := 300.0
 var body_condition := 3.0
@@ -433,6 +487,10 @@ var restoring_game := false
 var cash_balance := STARTING_CASH
 var transaction_history: Array = []
 var current_module := "farm"
+var workspace_mode := WorkspaceMode.MAP
+var last_map_module := "farm"
+var return_module := ""
+var map_palette_expanded := false
 var build_mode := BuildMode.NONE
 var build_points := PackedVector2Array()
 var pending_structure_position := Vector2.ZERO
@@ -539,6 +597,12 @@ func _ready() -> void:
 	use_feed_reserve_button.pressed.connect(_activate_feed_reserve)
 	save_button.pressed.connect(_save_game)
 	load_button.pressed.connect(_load_game)
+	pause_time_button.pressed.connect(_set_time_mode.bind(TimeMode.PAUSED))
+	play_time_button.pressed.connect(_set_time_mode.bind(TimeMode.PLAY))
+	fast_time_button.pressed.connect(_set_time_mode.bind(TimeMode.FAST))
+	module_close_button.pressed.connect(_on_module_close_pressed)
+	map_palette_open_button.pressed.connect(_open_map_palette)
+	return_to_module_button.pressed.connect(_return_from_map_interaction)
 	server_time_request.request_completed.connect(_on_server_time_received)
 	dashboard_module_button.pressed.connect(_show_module.bind("dashboard"))
 	farm_module_button.pressed.connect(_show_module.bind("farm"))
@@ -577,6 +641,8 @@ func _ready() -> void:
 	_update_sanitary_ui()
 	_update_service_order_ui()
 	_update_structures_ui()
+	_set_time_mode(TimeMode.PAUSED)
+	_initialize_workspace_ui()
 	_show_module("farm")
 	call_deferred("_request_server_time")
 
@@ -584,7 +650,8 @@ func _ready() -> void:
 func _process(delta: float) -> void:
 	_update_server_clock(delta)
 	_process_offline_days()
-	if server_clock_synchronized and offline_days_pending <= 0:
+	if game_time_initialized and offline_days_pending <= 0:
+		_advance_game_clock(delta)
 		auto_save_accumulator += delta
 		if auto_save_accumulator >= AUTO_SAVE_INTERVAL_SECONDS:
 			auto_save_accumulator = 0.0
@@ -685,6 +752,116 @@ func _formatted_server_datetime() -> String:
 	]
 
 
+func _formatted_game_datetime() -> String:
+	if not game_time_initialized:
+		return "AGUARDANDO HORÁRIO OFICIAL"
+	var local_unix := floori(game_unix_time) + server_utc_offset_seconds
+	var date_time := Time.get_datetime_dict_from_unix_time(local_unix)
+	return "%02d/%02d/%04d %02d:%02d" % [
+		int(date_time["day"]),
+		int(date_time["month"]),
+		int(date_time["year"]),
+		int(date_time["hour"]),
+		int(date_time["minute"]),
+	]
+
+
+func _time_rate() -> float:
+	match time_mode:
+		TimeMode.PLAY:
+			return GAME_SECONDS_PER_REAL_SECOND_PLAY
+		TimeMode.FAST:
+			return GAME_SECONDS_PER_REAL_SECOND_FAST
+	return 0.0
+
+
+func _time_visual_speed() -> float:
+	match time_mode:
+		TimeMode.PLAY:
+			return 1.0
+		TimeMode.FAST:
+			return 7.0
+	return 0.0
+
+
+func _set_time_mode(mode: TimeMode) -> void:
+	time_mode = mode
+	pause_time_button.set_pressed_no_signal(mode == TimeMode.PAUSED)
+	play_time_button.set_pressed_no_signal(mode == TimeMode.PLAY)
+	fast_time_button.set_pressed_no_signal(mode == TimeMode.FAST)
+	_apply_time_mode_to_active_work()
+
+
+func _apply_time_mode_to_tween(tween: Tween) -> void:
+	if not is_instance_valid(tween):
+		return
+	if time_mode == TimeMode.PAUSED:
+		tween.pause()
+	else:
+		tween.set_speed_scale(_time_visual_speed())
+		tween.play()
+
+
+func _apply_time_mode_to_active_work() -> void:
+	_apply_time_mode_to_tween(construction_job_tween)
+	_apply_time_mode_to_tween(full_perimeter_build_tween)
+	_apply_time_mode_to_tween(cowboy_job_tween)
+	var animation_speed := _time_visual_speed()
+	construction_worker_1.speed_scale = animation_speed
+	construction_worker_2.speed_scale = animation_speed
+	construction_worker_3.speed_scale = animation_speed
+	cowboy_sprite.speed_scale = animation_speed
+
+
+func _game_local_seconds_of_day() -> float:
+	var local_unix := floori(game_unix_time) + server_utc_offset_seconds
+	var date_time := Time.get_datetime_dict_from_unix_time(local_unix)
+	return (
+		float(date_time["hour"]) * 3600.0
+		+ float(date_time["minute"]) * 60.0
+		+ float(date_time["second"])
+		+ fmod(game_unix_time, 1.0)
+	)
+
+
+func _advance_game_clock(delta: float) -> void:
+	if not game_time_initialized or time_mode == TimeMode.PAUSED or delta <= 0.0:
+		return
+	var game_seconds_remaining := delta * _time_rate()
+	var advanced_day := false
+	while game_seconds_remaining > 0.0 and time_mode != TimeMode.PAUSED:
+		var seconds_to_midnight := 86400.0 - _game_local_seconds_of_day()
+		var step := minf(game_seconds_remaining, seconds_to_midnight)
+		game_unix_time += step
+		game_seconds_remaining -= step
+		if step + 0.0001 < seconds_to_midnight:
+			break
+		_advance_day(true)
+		advanced_day = true
+		_set_calendar_from_game_unix()
+		_sync_construction_with_game_time()
+		var critical_reason := _critical_time_pause_reason()
+		if not critical_reason.is_empty():
+			_pause_for_critical_event(critical_reason)
+			break
+	if advanced_day:
+		_refresh_simulation_ui()
+	else:
+		_update_game_clock_text()
+
+
+func _set_calendar_from_game_unix() -> void:
+	if not game_time_initialized:
+		return
+	_set_calendar_from_server_unix(floori(game_unix_time))
+
+
+func _pause_for_critical_event(reason: String) -> void:
+	_set_time_mode(TimeMode.PAUSED)
+	save_status.text = "Alerta da fazenda: %s. Tempo pausado." % reason
+	_refresh_simulation_ui()
+
+
 func _update_server_clock(delta: float) -> void:
 	server_sync_accumulator += delta
 	server_display_accumulator += delta
@@ -694,8 +871,6 @@ func _update_server_clock(delta: float) -> void:
 	if server_clock_synchronized and server_display_accumulator >= 1.0:
 		server_display_accumulator = 0.0
 		_update_climate_visuals()
-		if offline_days_pending <= 0:
-			_schedule_real_time_progress()
 
 
 func _on_official_time_synchronized() -> void:
@@ -704,11 +879,17 @@ func _on_official_time_synchronized() -> void:
 		if FileAccess.file_exists(save_path):
 			_load_game(false)
 			return
-		_set_calendar_from_server_unix(_current_server_unix_utc())
-		last_processed_server_unix_utc = _current_server_unix_utc()
+		game_unix_time = float(_current_server_unix_utc())
+		game_time_initialized = true
+		_set_calendar_from_game_unix()
+		last_saved_real_unix_utc = _current_server_unix_utc()
+		last_processed_server_unix_utc = last_saved_real_unix_utc
+		_set_time_mode(TimeMode.PAUSED)
 		_save_game(false)
 		return
-	_schedule_real_time_progress()
+	if game_time_initialized and offline_progress_check_pending:
+		_schedule_offline_progress()
+		offline_progress_check_pending = false
 
 
 func _local_datetime_from_server_unix(unix_utc: int) -> Dictionary:
@@ -758,25 +939,29 @@ func _set_calendar_from_server_unix(unix_utc: int) -> void:
 	)
 
 
-func _schedule_real_time_progress() -> void:
-	if not server_clock_synchronized or offline_days_pending > 0:
+func _schedule_offline_progress() -> void:
+	if not server_clock_synchronized or not game_time_initialized or offline_days_pending > 0:
 		return
 	var server_now := _current_server_unix_utc()
-	if last_processed_server_unix_utc <= 0:
-		_set_calendar_from_server_unix(server_now)
-		last_processed_server_unix_utc = server_now
-		_save_game(false)
+	if last_saved_real_unix_utc <= 0:
+		last_saved_real_unix_utc = server_now
 		return
-	var elapsed_days := _days_between_server_dates(
-		last_processed_server_unix_utc,
-		server_now
+	var elapsed_days := clampi(
+		server_now - last_saved_real_unix_utc,
+		0,
+		MAX_OFFLINE_GAME_DAYS
 	)
 	if elapsed_days <= 0:
 		return
-	_set_calendar_from_server_unix(last_processed_server_unix_utc)
 	offline_target_server_unix_utc = server_now
 	offline_days_pending = elapsed_days
 	offline_days_total = elapsed_days
+	offline_days_processed = 0
+	offline_report_note = (
+		"Avanço offline limitado a %d dias." % MAX_OFFLINE_GAME_DAYS
+		if server_now - last_saved_real_unix_utc > MAX_OFFLINE_GAME_DAYS
+		else ""
+	)
 	offline_summary_before = {
 		"herd_size": herd_size,
 		"weight": average_weight_kg,
@@ -793,13 +978,24 @@ func _process_offline_days() -> void:
 		return
 	var batch_size := mini(offline_days_pending, OFFLINE_DAYS_PER_FRAME)
 	for _day_index in range(batch_size):
+		game_unix_time += GAME_SECONDS_PER_REAL_SECOND_PLAY
 		_advance_day(true)
-	offline_days_pending -= batch_size
+		_set_calendar_from_game_unix()
+		_sync_construction_with_game_time()
+		offline_days_pending -= 1
+		offline_days_processed += 1
+		var critical_reason := _critical_time_pause_reason()
+		if not critical_reason.is_empty():
+			offline_report_note = "Evento crítico: %s. O avanço foi interrompido." % critical_reason
+			offline_days_pending = 0
+			_pause_for_critical_event(critical_reason)
+			break
 	if offline_days_pending > 0:
 		save_status.text = "Atualizando a fazenda: faltam %d dia(s)." % offline_days_pending
 		return
+	_set_time_mode(TimeMode.PAUSED)
+	last_saved_real_unix_utc = offline_target_server_unix_utc
 	last_processed_server_unix_utc = offline_target_server_unix_utc
-	_set_calendar_from_server_unix(last_processed_server_unix_utc)
 	_refresh_simulation_ui()
 	_show_offline_report()
 	_save_game(false)
@@ -809,7 +1005,7 @@ func _show_offline_report() -> void:
 	if offline_days_total <= 0 or offline_summary_before.is_empty():
 		return
 	var report := (
-		"Período processado: %d dia(s)\n\n"
+		"Período processado: %d dia(s)\n%s"
 		+ "Rebanho: %d → %d bovinos\n"
 		+ "Peso médio: %.1f → %.1f kg\n"
 		+ "Forragem Pasto 1: %.0f%% → %.0f%%\n"
@@ -817,7 +1013,8 @@ func _show_offline_report() -> void:
 		+ "Açude 1: %.0f%% → %.0f%%\n"
 		+ "Açude 2: %.0f%% → %.0f%%"
 	) % [
-		offline_days_total,
+		offline_days_processed,
+		("\n" if offline_report_note.is_empty() else "%s\n\n" % offline_report_note),
 		int(offline_summary_before.get("herd_size", 0)), herd_size,
 		float(offline_summary_before.get("weight", average_weight_kg)), average_weight_kg,
 		float(offline_summary_before.get("forage_1", forage[1])), float(forage[1]),
@@ -827,8 +1024,10 @@ func _show_offline_report() -> void:
 	]
 	offline_report_dialog.dialog_text = report
 	offline_report_dialog.popup_centered(Vector2i(520, 380))
-	save_status.text = "Fazenda atualizada após %d dia(s)." % offline_days_total
+	save_status.text = "Fazenda atualizada após %d dia(s). Tempo pausado." % offline_days_processed
 	offline_days_total = 0
+	offline_days_processed = 0
+	offline_report_note = ""
 	offline_summary_before = {}
 
 
@@ -849,7 +1048,7 @@ func _refresh_simulation_ui() -> void:
 
 func _notification(what: int) -> void:
 	if what in [NOTIFICATION_WM_CLOSE_REQUEST, NOTIFICATION_APPLICATION_PAUSED]:
-		if server_clock_synchronized:
+		if game_time_initialized:
 			_save_game(false)
 
 
@@ -872,13 +1071,14 @@ func _report_critical_event() -> void:
 	var reason := _critical_time_pause_reason()
 	if reason.is_empty():
 		return
-	save_status.text = "Alerta da fazenda: %s." % reason
+	_pause_for_critical_event(reason)
 
 
 func _show_module(module_name: String) -> void:
 	if build_mode != BuildMode.NONE and module_name != "store":
 		_cancel_free_construction()
 
+	var previous_module := current_module
 	current_module = module_name
 	if module_name == "market":
 		_update_market_readiness_ui()
@@ -921,6 +1121,7 @@ func _show_module(module_name: String) -> void:
 		var module_button: Button = module_buttons[button_name]
 		module_button.set_pressed_no_signal(button_name == module_name)
 
+	_apply_workspace_presentation(module_name, previous_module)
 	_update_construction_actions_visibility()
 	sidebar_scroll.scroll_vertical = 0
 
@@ -991,6 +1192,111 @@ func _show_module(module_name: String) -> void:
 		terrain_tooltip.visible = false
 	if module_name == "structures":
 		_update_structures_ui()
+
+
+func _initialize_workspace_ui() -> void:
+	module_header.reparent(module_workspace, false)
+	sidebar_margin.reparent(module_workspace, false)
+	module_actions.reparent(content_workspace, false)
+	_configure_module_chrome(module_workspace, false)
+
+	module_actions.anchor_left = 0.0
+	module_actions.anchor_top = 1.0
+	module_actions.anchor_right = 0.0
+	module_actions.anchor_bottom = 1.0
+	module_actions.offset_left = 16.0
+	module_actions.offset_top = -106.0
+	module_actions.offset_right = 336.0
+	module_actions.offset_bottom = -16.0
+
+
+func _configure_module_chrome(parent: Control, floating: bool) -> void:
+	if module_header.get_parent() != parent:
+		module_header.reparent(parent, false)
+	if sidebar_margin.get_parent() != parent:
+		sidebar_margin.reparent(parent, false)
+
+	module_header.anchor_left = 0.0
+	module_header.anchor_top = 0.0
+	module_header.anchor_right = 1.0
+	module_header.anchor_bottom = 0.0
+	module_header.offset_left = 0.0
+	module_header.offset_top = 0.0
+	module_header.offset_right = 0.0
+	module_header.offset_bottom = 92.0
+
+	sidebar_margin.anchor_left = 0.0
+	sidebar_margin.anchor_top = 0.0
+	sidebar_margin.anchor_right = 1.0
+	sidebar_margin.anchor_bottom = 1.0
+	sidebar_margin.offset_left = 0.0
+	sidebar_margin.offset_top = 0.0
+	sidebar_margin.offset_right = 0.0
+	sidebar_margin.offset_bottom = 0.0
+	sidebar_margin.add_theme_constant_override("margin_left", 10 if floating else 24)
+	sidebar_margin.add_theme_constant_override("margin_top", 102)
+	sidebar_margin.add_theme_constant_override("margin_right", 8 if floating else 24)
+	sidebar_margin.add_theme_constant_override("margin_bottom", 10 if floating else 24)
+
+
+func _apply_workspace_presentation(module_name: String, previous_module: String) -> void:
+	map_interaction_bar.visible = false
+	return_module = ""
+	var presentation := int(MODULE_PRESENTATION.get(module_name, WorkspaceMode.MAP))
+	if presentation == WorkspaceMode.MAP:
+		workspace_mode = WorkspaceMode.MAP
+		last_map_module = module_name
+		module_workspace.visible = false
+		_configure_module_chrome(map_palette, true)
+		map_palette_expanded = module_name == "store" or previous_module != module_name
+		map_palette.visible = map_palette_expanded
+		map_palette_open_button.visible = not map_palette_expanded
+		map_palette_open_button.text = "Abrir %s" % module_title.text.capitalize()
+		module_close_button.text = "Recolher"
+		module_close_button.tooltip_text = "Recolher as ferramentas e liberar o mapa"
+		return
+
+	workspace_mode = WorkspaceMode.FULL_MODULE
+	map_palette.visible = false
+	map_palette_open_button.visible = false
+	module_workspace.visible = true
+	_configure_module_chrome(module_workspace, false)
+	module_close_button.text = "Voltar ao mapa"
+	module_close_button.tooltip_text = "Voltar para %s" % last_map_module.capitalize()
+
+
+func _on_module_close_pressed() -> void:
+	if workspace_mode == WorkspaceMode.FULL_MODULE:
+		_show_module(last_map_module)
+		return
+	if workspace_mode == WorkspaceMode.MAP:
+		map_palette_expanded = false
+		map_palette.visible = false
+		map_palette_open_button.visible = true
+
+
+func _open_map_palette() -> void:
+	if workspace_mode != WorkspaceMode.MAP:
+		return
+	map_palette_expanded = true
+	map_palette.visible = true
+	map_palette_open_button.visible = false
+
+
+func _open_herd_map_interaction() -> void:
+	return_module = "herd"
+	workspace_mode = WorkspaceMode.MAP_INTERACTION
+	module_workspace.visible = false
+	map_palette.visible = false
+	map_palette_open_button.visible = false
+	module_actions.visible = false
+	map_interaction_bar.visible = true
+	terrain_tooltip.visible = false
+
+
+func _return_from_map_interaction() -> void:
+	var target_module := return_module if not return_module.is_empty() else "herd"
+	_show_module(target_module)
 
 
 func _formed_paddock_count() -> int:
@@ -1629,10 +1935,13 @@ func _start_timed_construction(
 	construction_job_name = work_name
 	construction_job_data = job_data.duplicate(true)
 	construction_job_target = target_position
-	construction_job_started_unix_utc = _current_server_unix_utc()
+	construction_job_started_unix_utc = floori(game_unix_time)
 	construction_job_completes_unix_utc = (
 		construction_job_started_unix_utc
-		+ ceili(CREW_TRAVEL_DURATION_SECONDS + work_duration)
+		+ ceili(
+			(CREW_TRAVEL_DURATION_SECONDS + work_duration)
+			* GAME_SECONDS_PER_REAL_SECOND_PLAY
+		)
 		if construction_job_started_unix_utc > 0
 		else 0
 	)
@@ -1656,6 +1965,7 @@ func _start_timed_construction(
 	construction_job_tween.tween_callback(_start_construction_worker_actions)
 	construction_job_tween.tween_interval(work_duration)
 	construction_job_tween.tween_callback(_complete_active_construction_job)
+	_apply_time_mode_to_active_work()
 	_save_game(false)
 
 
@@ -1707,7 +2017,7 @@ func _cancel_active_construction_job() -> void:
 	_save_game(false)
 
 
-func _resume_saved_construction_job(serialized_job) -> void:
+func _resume_saved_construction_job(serialized_job, save_version: int = SAVE_VERSION) -> void:
 	if not serialized_job is Dictionary or serialized_job.is_empty():
 		return
 	var job_data = serialized_job.get("data", {})
@@ -1719,9 +2029,22 @@ func _resume_saved_construction_job(serialized_job) -> void:
 	var target := _deserialize_vector2(
 		serialized_job.get("target", job_data.get("position", []))
 	)
-	var completes_unix := maxi(int(serialized_job.get("completes_unix_utc", 0)), 0)
-	var server_now := _current_server_unix_utc()
-	if completes_unix > 0 and server_now >= completes_unix:
+	var remaining_seconds := maxf(
+		float(serialized_job.get(
+			"remaining_play_seconds",
+			serialized_job.get("remaining_seconds", 1.0)
+		)),
+		0.05
+	)
+	var completes_unix := maxi(
+		int(serialized_job.get("completes_game_unix_time", 0)),
+		0
+	)
+	if save_version < SAVE_VERSION or completes_unix <= 0:
+		completes_unix = floori(
+			game_unix_time + remaining_seconds * GAME_SECONDS_PER_REAL_SECOND_PLAY
+		)
+	if completes_unix > 0 and game_unix_time >= completes_unix:
 		completion.call()
 		return
 
@@ -1731,13 +2054,11 @@ func _resume_saved_construction_job(serialized_job) -> void:
 	construction_job_data = job_data.duplicate(true)
 	construction_job_target = target
 	construction_job_started_unix_utc = maxi(
-		int(serialized_job.get("started_unix_utc", 0)), 0
+		int(serialized_job.get("started_game_unix_time", floori(game_unix_time))), 0
 	)
 	construction_job_completes_unix_utc = completes_unix
-	var remaining_seconds := maxf(
-		float(completes_unix - server_now)
-		if completes_unix > 0 and server_now > 0
-		else float(serialized_job.get("remaining_seconds", 1.0)),
+	remaining_seconds = maxf(
+		float(completes_unix - game_unix_time) / GAME_SECONDS_PER_REAL_SECOND_PLAY,
 		0.05
 	)
 	construction_job_duration_seconds = remaining_seconds
@@ -1750,6 +2071,19 @@ func _resume_saved_construction_job(serialized_job) -> void:
 	construction_job_tween = create_tween()
 	construction_job_tween.tween_interval(remaining_seconds)
 	construction_job_tween.tween_callback(_complete_active_construction_job)
+	_apply_time_mode_to_active_work()
+
+
+func _sync_construction_with_game_time() -> void:
+	if (
+		construction_job_active
+		and construction_job_completes_unix_utc > 0
+		and game_unix_time >= construction_job_completes_unix_utc
+	):
+		if is_instance_valid(construction_job_tween):
+			construction_job_tween.kill()
+		construction_job_tween = null
+		_complete_active_construction_job()
 
 
 func _construction_callable_from_data(job_data: Dictionary) -> Callable:
@@ -1810,20 +2144,20 @@ func _deserialize_vector2_array(serialized_points) -> PackedVector2Array:
 func _serialize_construction_job() -> Dictionary:
 	if not construction_job_active or construction_job_data.is_empty():
 		return {}
-	var server_now := _current_server_unix_utc()
 	var remaining_seconds := construction_job_duration_seconds
-	if construction_job_completes_unix_utc > 0 and server_now > 0:
+	if construction_job_completes_unix_utc > 0 and game_time_initialized:
 		remaining_seconds = maxf(
-			float(construction_job_completes_unix_utc - server_now),
+			float(construction_job_completes_unix_utc - game_unix_time)
+			/ GAME_SECONDS_PER_REAL_SECOND_PLAY,
 			0.0
 		)
 	return {
 		"name": construction_job_name,
 		"data": construction_job_data.duplicate(true),
 		"target": _serialize_vector2(construction_job_target),
-		"started_unix_utc": construction_job_started_unix_utc,
-		"completes_unix_utc": construction_job_completes_unix_utc,
-		"remaining_seconds": remaining_seconds,
+		"started_game_unix_time": construction_job_started_unix_utc,
+		"completes_game_unix_time": construction_job_completes_unix_utc,
+		"remaining_play_seconds": remaining_seconds,
 	}
 
 
@@ -1912,6 +2246,7 @@ func _start_full_perimeter_animation(points: PackedVector2Array, cost: int) -> v
 	full_perimeter_build_tween.finished.connect(
 		_finish_full_perimeter_animation.bind(points, cost)
 	)
+	_apply_time_mode_to_active_work()
 
 
 func _start_construction_worker_actions() -> void:
@@ -2168,7 +2503,7 @@ func _update_construction_actions_visibility() -> void:
 		return
 	var show_actions := current_module == "store" and build_mode != BuildMode.NONE
 	module_actions.visible = show_actions
-	sidebar_margin.offset_bottom = -90.0 if show_actions else 0.0
+	sidebar_margin.offset_bottom = 0.0
 
 
 func _fence_color(selected_mode: BuildMode) -> Color:
@@ -3801,45 +4136,39 @@ func _advance_reproduction_day() -> String:
 	var births := pregnant_females
 	var female_births := ceili(births / 2.0)
 	var male_births := births - female_births
-	var newborn_breeds: Array[String] = []
+	var pregnant_mothers: Array[Dictionary] = []
 	for animal in herd_animals:
 		if bool(animal.get("pregnant", false)):
-			newborn_breeds.append(_normalize_breed(str(animal.get("breed", DEFAULT_CATTLE_BREED))))
-	if newborn_breeds.is_empty():
-		newborn_breeds.append(DEFAULT_CATTLE_BREED)
+			pregnant_mothers.append(animal)
 	for animal in herd_animals:
 		if bool(animal.get("pregnant", false)):
 			animal["pregnant"] = false
 			animal["gestation_days"] = 0
 			animal["has_calved"] = true
 	var newborn_index := 0
-	var pregnant_mothers: Array = []
-	for animal in herd_animals:
-		if bool(animal.get("pregnant", false)):
-			pregnant_mothers.append(animal)
 	var mother_idx := 0
 	for _female_index in range(female_births):
 		if mother_idx >= pregnant_mothers.size():
 			mother_idx = 0
-		var mother := pregnant_mothers[mother_idx]
+		var mother: Dictionary = pregnant_mothers[mother_idx]
 		mother_idx += 1
 			
-		// Find a bull father - look for intact males
+		# Find a bull father - look for intact males
 		var father := {}
 		for a in herd_animals:
 			if bool(a.get("intact_male", false)) and str(a.get("category", "")) == "bulls":
-				father := a
+				father = a
 				break
 		if father == {}:
-			father := herd_animals[0]  // fallback
+			father = herd_animals[0]  # fallback
 				
-		// Resolve calf breed: use father's breed if different from mother, else mother's
-		var calf_breed := _resolve_offspring_breed(
+		# Resolve calf breed: use father's breed if different from mother, else mother's
+		var calf_breed: String = _resolve_offspring_breed(
 			str(mother["breed"]),
 			str(father["breed"])
 		)
 			
-		// Create offspring genotype via Punnett square inheritance
+		# Create offspring genotype via Punnett square inheritance
 		var calf_genotype := _create_offspring_genotype(mother, father)
 			
 		var female_calf := _create_individual_animal("female_calves", calf_genotype, calf_breed)
@@ -3850,18 +4179,18 @@ func _advance_reproduction_day() -> String:
 	for _male_index in range(male_births):
 		if mother_idx >= pregnant_mothers.size():
 			mother_idx = 0
-		var mother := pregnant_mothers[mother_idx]
+		var mother: Dictionary = pregnant_mothers[mother_idx]
 		mother_idx += 1
 			
 		var father := {}
 		for a in herd_animals:
 			if bool(a.get("intact_male", false)) and str(a.get("category", "")) == "bulls":
-				father := a
+				father = a
 				break
 		if father == {}:
-			father := herd_animals[0]
+			father = herd_animals[0]
 				
-		var calf_breed := _resolve_offspring_breed(
+		var calf_breed: String = _resolve_offspring_breed(
 			str(mother["breed"]),
 			str(father["breed"])
 		)
@@ -3905,8 +4234,8 @@ func _update_herd_genotype_averages() -> void:
 	)
 	if herd_animal_list.is_empty():
 		return
-	for trait in GENETIC_TRAITS:
-		herd_genotype_average[trait] = _herd_average_phenotype(trait)
+	for trait_name in GENETIC_TRAITS:
+		herd_genotype_average[trait_name] = _herd_average_phenotype(trait_name)
 
 
 func _create_individual_animal(
@@ -3916,20 +4245,24 @@ func _create_individual_animal(
 ) -> Dictionary:
 	var sex := "female" if category in ["female_calves", "heifers", "cows"] else "male"
 	var category_profile := _market_category_profile(category)
-	
-	// Handle legacy "genetics" field for backward compatibility
-	var legacy_genetics := custom_genotype.get("genetics", {})
-	var has_legacy_genetics := not legacy_genetics.is_empty() and legacy_genetics.has_key("fertility")
-	
-	var animal_genotype: Dictionary = (
-		if has_legacy_genetics:
-			// Convert legacy genetics to new genotype format
-			_genetics_to_genotype(legacy_genetics, _normalize_breed(custom_breed))
-		else:
-			custom_genotype.duplicate(true)
-			if not custom_genotype.is_empty()
-			else _generate_random_genotype(_normalize_breed(custom_breed))
+
+	# Handle legacy "genetics" field for backward compatibility
+	var legacy_genetics: Dictionary = custom_genotype.get("genetics", {})
+	var has_legacy_genetics: bool = (
+		not legacy_genetics.is_empty() and legacy_genetics.has("fertility")
 	)
+
+	var animal_genotype: Dictionary
+	if has_legacy_genetics:
+		# Convert legacy genetics to new genotype format
+		animal_genotype = _genetics_to_genotype(
+			legacy_genetics,
+			_normalize_breed(custom_breed)
+		)
+	elif not custom_genotype.is_empty():
+		animal_genotype = custom_genotype.duplicate(true)
+	else:
+		animal_genotype = _generate_random_genotype(_normalize_breed(custom_breed))
 	var animal := {
 		"id": "BOV-%04d" % next_animal_id,
 		"sex": sex,
@@ -3956,34 +4289,34 @@ func _create_individual_animal(
 
 
 func _genetics_to_genotype(legacy_genetics: Dictionary, breed: String) -> Dictionary:
-	// Convert the old 6-trait genetics dictionary to the new polygenic genotype format
+	# Convert the old 6-trait genetics dictionary to the new polygenic genotype format
 	var genotype := {}
-	for trait in ALL_TRAITS:
-		genotype[trait] := {}
+	for trait_name in ALL_TRAITS:
+		genotype[trait_name] = {}
 		var locus_count := 3
 		for locus_idx in range(locus_count):
 			var locus_name := "locus_%d" % (locus_idx + 1)
-			// Map the old value (0-100) to allele dominance
-			// Higher values = more dominant alleles
-			var old_value := float(legacy_genetics.get(trait, 50.0))
-			var dominant_alleles := roundi(old_value / (100.0 / (locus_count * 2)))  // roughly how many dominant alleles
+			# Map the old value (0-100) to allele dominance
+			# Higher values = more dominant alleles
+			var old_value := float(legacy_genetics.get(trait_name, 50.0))
+			var dominant_alleles := roundi(old_value / (100.0 / (locus_count * 2)))  # roughly how many dominant alleles
 			var total_alleles := locus_count * 2
 			var recessive_alleles := total_alleles - dominant_alleles
 			
-			// Generate dominant alleles (A) and recessive alleles (a)
+			# Generate dominant alleles (A) and recessive alleles (a)
 			var loci := {}
 			for i in range(locus_count):
 				var locus_locus_name := "locus_%d" % (i + 1)
-				// Distribute dominant alleles across loci
+				# Distribute dominant alleles across loci
 				var has_dominant := dominant_alleles > 0
 				dominant_alleles = maxi(dominant_alleles - 1, 0)
-				loci[locus_locus_name] := ["A", "a"]  // default heterozygous
+				loci[locus_locus_name] = ["A", "a"]  # default heterozygous
 				if not has_dominant:
-					loci[locus_locus_name] := ["a", "a"]
-				// If we have leftover dominant alleles, make this locus homozygous dominant
+					loci[locus_locus_name] = ["a", "a"]
+				# If we have leftover dominant alleles, make this locus homozygous dominant
 				if dominant_alleles > 0 and i == locus_count - 1:
-					loci[locus_locus_name] := ["A", "A"]
-			genotype[trait] := loci
+					loci[locus_locus_name] = ["A", "A"]
+			genotype[trait_name] = loci
 	return genotype
 
 
@@ -4007,6 +4340,10 @@ func _normalize_breed(breed_key: String) -> String:
 	return DEFAULT_CATTLE_BREED
 
 
+func _resolve_offspring_breed(mother_breed: String, _father_breed: String) -> String:
+	return _normalize_breed(mother_breed)
+
+
 const BREED_GENOTYPE_PROFILES := {
 	"nelore": {
 		"fertility": {"locus_1": ["A","a"], "locus_2": ["A","A"], "locus_3": ["a","a"]},
@@ -4015,14 +4352,6 @@ const BREED_GENOTYPE_PROFILES := {
 		"parasite_resistance": {"locus_1": ["A","A"], "locus_2": ["A","a"], "locus_3": ["a","a"]},
 		"weight_gain": {"locus_1": ["A","a"], "locus_2": ["a","a"], "locus_3": ["a","a"]},
 		"maternal_ability": {"locus_1": ["A","a"], "locus_2": ["A","a"], "locus_3": ["a","a"]},
-	},
-	"angus": {
-		"fertility": {"locus_1": ["A","A"], "locus_2": ["A","A"], "locus_3": ["a","a"]},
-		"calving_ease": {"locus_1": ["A","A"], "locus_2": ["A","A"], "locus_3": ["A","a"]},
-		"heat_adaptation": {"locus_1": ["a","a"], "locus_2": ["a","a"], "locus_3": ["A","a"]},
-		"parasite_resistance": {"locus_1": ["A","a"], "locus_2": ["a","a"], "locus_3": ["a","a"]},
-		"weight_gain": {"locus_1": ["A","A"], "locus_2": ["A","A"], "locus_3": ["A","a"]},
-		"maternal_ability": {"locus_1": ["A","A"], "locus_2": ["A","a"], "locus_3": ["A","a"]},
 	},
 	"guzera": {
 		"fertility": {"locus_1": ["A","A"], "locus_2": ["A","a"], "locus_3": ["a","a"]},
@@ -4099,30 +4428,33 @@ const BREED_GENOTYPE_PROFILES := {
 }
 
 func _generate_random_genotype(breed: String) -> Dictionary:
-	var base := BREED_GENOTYPE_PROFILES.get(breed, BREED_GENOTYPE_PROFILES["nelore"])
+	var base: Dictionary = BREED_GENOTYPE_PROFILES.get(
+		breed,
+		BREED_GENOTYPE_PROFILES["nelore"]
+	)
 	var genotype := {}
-	for trait in ALL_TRAITS:
-		genotype[trait] := {}
-		var trait_base := base.get(trait, {})
+	for trait_name in ALL_TRAITS:
+		genotype[trait_name] = {}
+		var trait_base: Dictionary = base.get(trait_name, {})
 		for locus_name in trait_base:
-			var alleles := trait_base[locus_name].duplicate()
-			// 10% chance of mutation per allele
+			var alleles: Array = trait_base[locus_name].duplicate()
+			# 10% chance of mutation per allele
 			if randf() < 0.10:
 				alleles[0] = _flip_allele(alleles[0])
 			if randf() < 0.10:
 				alleles[1] = _flip_allele(alleles[1])
-			genotype[trait][locus_name] := alleles
+			genotype[trait_name][locus_name] = alleles
 	return genotype
 
 func _flip_allele(allele: String) -> String:
 	return allele.to_lower() if allele == allele.to_upper() else allele.to_upper()
 
-func _calculate_phenotype(genotype: Dictionary, trait: String) -> float:
-	var loci = genotype[trait]
+func _calculate_phenotype(genotype: Dictionary, trait_name: String) -> float:
+	var loci: Dictionary = genotype[trait_name]
 	var dominant_count = 0
 	var total_alleles = 0
-	for locus in loci:
-		for allele in locus:
+	for locus_name in loci:
+		for allele in loci[locus_name]:
 			total_alleles += 1
 			if allele == allele.to_upper():
 				dominant_count += 1
@@ -4130,37 +4462,41 @@ func _calculate_phenotype(genotype: Dictionary, trait: String) -> float:
 		return 50.0
 	return (dominant_count / float(total_alleles)) * 100.0
 
-func _herd_average_phenotype(trait: String) -> float:
+func _herd_average_phenotype(trait_name: String) -> float:
 	var herd_animal_list: Array = herd_animals.filter(
 		func(a: Dictionary) -> bool: return str(a.get("destiny", "")) == "herd"
 	)
 	if herd_animal_list.is_empty():
-		return herd_genotype_average[trait]
+		return herd_genotype_average[trait_name]
 	var total := 0.0
 	for animal in herd_animal_list:
-		total += _calculate_phenotype(animal["genotype"], trait)
+		total += _calculate_phenotype(animal["genotype"], trait_name)
 	return total / float(herd_animal_list.size())
 
 func _herd_genetics_snapshot() -> Dictionary:
 	var snapshot := {}
-	for trait in GENETIC_TRAITS:
-		snapshot[trait] = _herd_average_phenotype(trait)
+	for trait_name in GENETIC_TRAITS:
+		snapshot[trait_name] = _herd_average_phenotype(trait_name)
 	return snapshot
 
 func _create_offspring_genotype(mother: Dictionary, father: Dictionary) -> Dictionary:
 	var offspring_genotype := {}
-	for trait in ALL_TRAITS:
-		offspring_genotype[trait] := {}
+	var mother_genotype: Dictionary = mother.get("genotype", {})
+	var father_genotype: Dictionary = father.get("genotype", {})
+	for trait_name in ALL_TRAITS:
+		offspring_genotype[trait_name] = {}
+		var mother_trait: Dictionary = mother_genotype.get(trait_name, {})
+		var father_trait: Dictionary = father_genotype.get(trait_name, {})
 		for locus_idx in range(LOCI_PER_TRAIT):
 			var locus_name := "locus_%d" % (locus_idx + 1)
-			// Mother contributes 1 random allele
-			var mother_alleles := mother["genotype"][trait][locus_name]
-			var maternal_allele := mother_alleles.pick_random()
-			// Father contributes 1 random allele
-			var father_alleles := father["genotype"][trait][locus_name]
-			var paternal_allele := father_alleles.pick_random()
-			// Punnett: combine maternal and paternal alleles
-			offspring_genotype[trait][locus_name] := [maternal_allele, paternal_allele]
+			# Mother contributes 1 random allele
+			var mother_alleles: Array = mother_trait.get(locus_name, ["A", "a"])
+			var maternal_allele: String = str(mother_alleles.pick_random())
+			# Father contributes 1 random allele
+			var father_alleles: Array = father_trait.get(locus_name, ["A", "a"])
+			var paternal_allele: String = str(father_alleles.pick_random())
+			# Punnett: combine maternal and paternal alleles
+			offspring_genotype[trait_name][locus_name] = [maternal_allele, paternal_allele]
 	return offspring_genotype
 
 func _selected_market_breed() -> String:
@@ -4451,6 +4787,7 @@ func _start_cowboy_visual(target: Vector2) -> void:
 		1.2
 	)
 	cowboy_job_tween.tween_callback(func() -> void: cowboy_sprite.call("start_work"))
+	_apply_time_mode_to_active_work()
 
 
 func _advance_service_order() -> String:
@@ -4499,6 +4836,7 @@ func _return_cowboy_visual() -> void:
 		cowboy_visual.visible = false
 		cowboy_sprite.call("stop_work")
 	)
+	_apply_time_mode_to_active_work()
 
 
 func _update_service_order_ui() -> void:
@@ -5550,18 +5888,22 @@ func _update_river_level() -> void:
 func _update_climate_visuals() -> void:
 	climate_icon.texture = _climate_phase_icon()
 	climate_status.add_theme_color_override("font_color", _climate_phase_color())
-	climate_status.text = "%s | %s • %s | %.0f°C" % [
-		_formatted_server_datetime(),
-		_climate_phase_short(),
-		weather_condition,
-		max_temperature_c,
-	]
+	_update_game_clock_text()
 	pond_1_label.text = "AÇUDE\nNível: %s" % _pond_level_label(pond_level[1])
 	pond_2_label.text = "AÇUDE\nNível: %s" % _pond_level_label(pond_level[2])
 	pond_1_gauge.call("set_level", pond_level[1])
 	pond_2_gauge.call("set_level", pond_level[2])
 	_update_water_level_visuals()
 	river_label.text = "RIO INTERMITENTE\n%s" % _river_level_label()
+
+
+func _update_game_clock_text() -> void:
+	climate_status.text = "%s | %s • %s | %.0f°C" % [
+		_formatted_game_datetime(),
+		_climate_phase_short(),
+		weather_condition,
+		max_temperature_c,
+	]
 
 
 func _update_water_level_visuals() -> void:
@@ -6141,6 +6483,8 @@ func _pond_center_for_polygon(polygon: PackedVector2Array, fallback: Vector2) ->
 
 func _select_herd_lot() -> void:
 	herd_visuals.call("select_lot")
+	if current_module == "herd":
+		_open_herd_map_interaction()
 
 
 func _on_herd_visual_selection_changed(summary: String) -> void:
@@ -6159,6 +6503,9 @@ func _format_money(value: int) -> String:
 
 
 func _save_game(show_message: bool = true) -> void:
+	if server_clock_synchronized:
+		last_saved_real_unix_utc = _current_server_unix_utc()
+		last_processed_server_unix_utc = last_saved_real_unix_utc
 	var save_data := _build_save_data()
 	var save_dir := save_path.get_base_dir()
 	if not DirAccess.dir_exists_absolute(save_dir):
@@ -6189,11 +6536,19 @@ func _build_save_data() -> Dictionary:
 		"herd_created": herd_created,
 		"herd_size": herd_size,
 		"herd_animals": herd_animals.duplicate(true),
+		"herd_genetics": _herd_genetics_snapshot(),
 		"next_animal_id": next_animal_id,
 		"herd_pasture": herd_pasture,
 		"current_day": current_day,
 		"day_of_year": day_of_year,
 		"current_year": current_year,
+		"game_unix_time": game_unix_time,
+		"time_mode": int(time_mode),
+		"real_unix_utc_at_save": (
+			_current_server_unix_utc()
+			if server_clock_synchronized
+			else last_saved_real_unix_utc
+		),
 		"server_unix_utc_at_save": _current_server_unix_utc(),
 		"last_processed_server_unix_utc": last_processed_server_unix_utc,
 		"server_timezone": FARM_TIMEZONE,
@@ -6276,12 +6631,14 @@ func _load_game(show_message: bool = true) -> void:
 
 	var save_data: Dictionary = parsed_data
 	_restore_saved_game(save_data)
+	offline_progress_check_pending = true
 	if server_clock_synchronized:
-		_schedule_real_time_progress()
+		_schedule_offline_progress()
+		offline_progress_check_pending = false
 	elif show_message:
-		save_status.text = "Partida carregada. Aguardando o horário oficial."
-	if show_message and offline_days_pending <= 0:
-		save_status.text = "Partida carregada."
+		save_status.text = "Partida carregada e pausada. Evolução offline indisponível."
+	if show_message and server_clock_synchronized and offline_days_pending <= 0:
+		save_status.text = "Partida carregada. Tempo pausado."
 
 
 func _restore_saved_game(save_data: Dictionary) -> void:
@@ -6299,7 +6656,7 @@ func _restore_saved_game(save_data: Dictionary) -> void:
 	var saved_next_animal_id := int(save_data.get("next_animal_id", 1))
 	var saved_herd_pasture := int(save_data.get("herd_pasture", 1))
 	var saved_categories = save_data.get("herd_categories", {})
-	var saved_genetics := {}  // Genetics now stored per-animal in herd_animals
+	var saved_genetics := {}  # Genetics now stored per-animal in herd_animals
 	var saved_pregnant := int(save_data.get("pregnant_females", 0))
 	var saved_gestation_days := int(save_data.get("gestation_days_remaining", 0))
 	var saved_calf_age := int(save_data.get("calf_age_days", -1))
@@ -6341,6 +6698,13 @@ func _restore_saved_game(save_data: Dictionary) -> void:
 	var saved_vegetation_event := str(
 		save_data.get("vegetation_last_event", "Vegetação acompanhada diariamente.")
 	)
+	last_saved_real_unix_utc = maxi(
+		int(save_data.get(
+			"real_unix_utc_at_save",
+			save_data.get("server_unix_utc_at_save", 0)
+		)),
+		0
+	)
 	last_processed_server_unix_utc = maxi(
 		int(save_data.get(
 			"last_processed_server_unix_utc",
@@ -6362,6 +6726,26 @@ func _restore_saved_game(save_data: Dictionary) -> void:
 		if save_version < CALENDAR_365_SAVE_VERSION
 		else clampi(saved_day_of_year, 1, _days_in_year(current_year))
 	)
+	game_unix_time = float(save_data.get(
+		"game_unix_time",
+		save_data.get(
+			"server_unix_utc_at_save",
+			save_data.get("last_processed_server_unix_utc", 0)
+		)
+	))
+	if game_unix_time <= 0.0:
+		var saved_month_day := _calendar_month_and_day()
+		game_unix_time = float(Time.get_unix_time_from_datetime_dict({
+			"year": current_year,
+			"month": saved_month_day.x,
+			"day": saved_month_day.y,
+			"hour": 0,
+			"minute": 0,
+			"second": 0,
+		})) - server_utc_offset_seconds
+	game_time_initialized = game_unix_time > 0.0
+	_set_calendar_from_game_unix()
+	_set_time_mode(TimeMode.PAUSED)
 	forage = {
 		1: float(save_data.get("forage_1", 100.0)),
 		2: float(save_data.get("forage_2", 100.0)),
@@ -6529,8 +6913,8 @@ func _restore_saved_game(save_data: Dictionary) -> void:
 				"oxen": 0,
 				"bulls": fallback_bulls,
 			}
-if saved_genetics is Dictionary and saved_genetics.has_key("herd_genetics"):
-			// Legacy format - ignore, genotype is now per-animal
+		if saved_genetics is Dictionary and saved_genetics.has("herd_genetics"):
+			# Legacy format - ignore, genotype is now per-animal
 			pass
 		herd_animals.clear()
 		next_animal_id = 1
@@ -6579,7 +6963,7 @@ if saved_genetics is Dictionary and saved_genetics.has_key("herd_genetics"):
 		_update_empty_herd_guidance()
 
 	restoring_game = false
-	_resume_saved_construction_job(saved_construction_job)
+	_resume_saved_construction_job(saved_construction_job, save_version)
 	_resume_service_order_visuals()
 	_update_pasture_visuals()
 	_update_climate_visuals()
