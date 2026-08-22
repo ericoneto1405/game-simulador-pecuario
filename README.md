@@ -6,7 +6,19 @@ As fases 0.1 até 0.7.3 estão concluídas e a Fase 0.8 foi iniciada. A agricult
 
 ## Estado atual
 
-O protótipo possui ciclo produtivo, financeiro, nutricional, hídrico natural, agrícola-forrageiro e de manejo das pastagens, validado por testes automáticos e exportado para Web.
+O protótipo possui ciclo produtivo, financeiro, nutricional, hídrico natural, agrícola-forrageiro e de manejo das pastagens, validado por testes automáticos e exportado para Web. Contas e partidas na nuvem usam um projeto Supabase exclusivo na região de São Paulo.
+
+## Contas e partidas na nuvem
+
+- Cadastro e login usam e-mail e senha pelo Supabase Auth.
+- Cada conta possui três slots.
+- O jogo salva primeiro em `user://cloud_cache/<user_id>/slot_N.json` e sincroniza depois.
+- Sessão, pendências offline, conflitos e exclusões pendentes são mantidos no dispositivo.
+- Ao entrar em outro navegador, as partidas da nuvem são baixadas novamente.
+- `users.json`, `fazenda_save.json` e saves antigos não são importados nem apagados.
+- A chave `service_role` nunca é usada no jogo.
+
+Para criar e configurar o ambiente, siga [docs/SUPABASE.md](docs/SUPABASE.md).
 
 ## Objetivo do jogo
 

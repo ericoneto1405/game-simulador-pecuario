@@ -307,6 +307,7 @@ var farm_visual_boundary := PackedVector2Array([
 @onready var save_status: Label = %SaveStatus
 @onready var server_time_request: HTTPRequest = $ServerTimeRequest
 @onready var offline_report_dialog: AcceptDialog = %OfflineReportDialog
+@onready var sync_conflict_dialog: ConfirmationDialog = %SyncConflictDialog
 @onready var sidebar_content: VBoxContainer = $Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll/SidebarContent
 @onready var sidebar_margin: MarginContainer = $Interface/MainLayout/Body/Sidebar/SidebarMargin
 @onready var sidebar_scroll: ScrollContainer = $Interface/MainLayout/Body/Sidebar/SidebarMargin/SidebarScroll
@@ -520,6 +521,10 @@ func _ready() -> void:
 		save_path = UserManager.get_slot_path(UserManager.current_slot)
 	else:
 		save_path = "user://fazenda_save.json"
+	UserManager.sync_status_changed.connect(_on_cloud_sync_status_changed)
+	UserManager.sync_conflict.connect(_on_cloud_sync_conflict)
+	sync_conflict_dialog.confirmed.connect(_on_cloud_conflict_use_local)
+	sync_conflict_dialog.canceled.connect(_on_cloud_conflict_use_cloud)
 	perimeter_button.pressed.connect(_build_perimeter)
 	horizontal_button.pressed.connect(_start_horizontal_division)
 	vertical_button.pressed.connect(_start_vertical_division)
@@ -6518,8 +6523,45 @@ func _save_game(show_message: bool = true) -> void:
 		return
 
 	save_file.store_string(JSON.stringify(save_data))
+	save_file.close()
+	if UserManager.current_slot >= 1:
+		UserManager.queue_slot_sync(UserManager.current_slot, save_data)
 	if show_message:
-		save_status.text = "Partida salva."
+		save_status.text = "Partida salva no dispositivo."
+
+
+func _on_cloud_sync_status_changed(status: String) -> void:
+	var labels := {
+		"salvo_localmente": "Salvo no dispositivo. Aguardando nuvem.",
+		"sincronizando": "Sincronizando com a nuvem...",
+		"sincronizado": "Partida sincronizada.",
+		"offline": "Offline. Salvamento pendente no dispositivo.",
+		"conflito": "Conflito de salvamento encontrado.",
+	}
+	save_status.text = str(labels.get(status, save_status.text))
+
+
+func _on_cloud_sync_conflict(slot: int) -> void:
+	if slot != UserManager.current_slot:
+		return
+	sync_conflict_dialog.dialog_text = (
+		"Esta partida também foi alterada em outro dispositivo. "
+		+ "Escolha qual versão deve continuar."
+	)
+	sync_conflict_dialog.popup_centered()
+
+
+func _on_cloud_conflict_use_local() -> void:
+	if UserManager.current_slot >= 1:
+		await UserManager.resolve_conflict(UserManager.current_slot, true)
+
+
+func _on_cloud_conflict_use_cloud() -> void:
+	if UserManager.current_slot < 1:
+		return
+	await UserManager.resolve_conflict(UserManager.current_slot, false)
+	_load_game(false)
+	save_status.text = "Versão da nuvem carregada. Tempo pausado."
 
 
 func _build_save_data() -> Dictionary:

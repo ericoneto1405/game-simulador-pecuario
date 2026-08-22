@@ -16,6 +16,7 @@ config/features=PackedStringArray("4.7")
 
 [autoload]
 
+SupabaseClient="*res://scripts/supabase_client.gd"
 UserManager="*res://scripts/user_manager.gd"
 
 [display]

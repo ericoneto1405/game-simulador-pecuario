@@ -11,6 +11,17 @@ Este documento apresenta as próximas fases projetadas para o jogo. A ordem pode
 - Plataforma alvo: Web para desktops, MacBooks e notebooks.
 - Celulares e tablets não fazem parte do suporte planejado.
 
+## Contas e partidas na nuvem
+
+**Status: concluída**
+
+- Autenticação por e-mail e senha, sem confirmação obrigatória.
+- Três slots por conta e salvamento local antes da sincronização.
+- Uso offline, renovação de sessão e recuperação das partidas após novo login.
+- Controle de revisão para conflitos entre dispositivos e exclusões pendentes.
+- RLS para impedir acesso às partidas de outra conta.
+- Saves locais antigos preservados sem importação automática.
+
 ## Fase 0.1 — Protótipo jogável
 
 **Status: concluída**

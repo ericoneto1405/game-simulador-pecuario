@@ -177,7 +177,7 @@ grow_vertical = 2
 [node name="AuthPanel" type="PanelContainer" parent="CenterContainer"]
 unique_name_in_owner = true
 layout_mode = 2
-custom_minimum_size = Vector2(440, 480)
+custom_minimum_size = Vector2(440, 620)
 theme_override_styles/panel = SubResource("StyleCard")
 
 [node name="AuthMargin" type="MarginContainer" parent="CenterContainer/AuthPanel"]
@@ -210,11 +210,31 @@ horizontal_alignment = 1
 [node name="HSep" type="HSeparator" parent="CenterContainer/AuthPanel/AuthMargin/AuthVBox"]
 layout_mode = 2
 
+[node name="DisplayNameLabel" type="Label" parent="CenterContainer/AuthPanel/AuthMargin/AuthVBox"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 2
+theme_override_colors/font_color = Color(0.7, 0.75, 0.6, 1)
+theme_override_font_sizes/font_size = 13
+text = "Nome"
+
+[node name="DisplayNameInput" type="LineEdit" parent="CenterContainer/AuthPanel/AuthMargin/AuthVBox"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 2
+custom_minimum_size = Vector2(0, 36)
+theme_override_styles/normal = SubResource("StyleInput")
+theme_override_colors/font_color = Color(0.85, 0.88, 0.78, 1)
+theme_override_colors/caret_color = Color(0.57, 0.78, 0.36, 1)
+theme_override_font_sizes/font_size = 14
+placeholder_text = "Como devemos chamar você?"
+clear_button_enabled = true
+
 [node name="UsernameLabel" type="Label" parent="CenterContainer/AuthPanel/AuthMargin/AuthVBox"]
 layout_mode = 2
 theme_override_colors/font_color = Color(0.7, 0.75, 0.6, 1)
 theme_override_font_sizes/font_size = 13
-text = "Usuário"
+text = "E-mail"
 
 [node name="UsernameInput" type="LineEdit" parent="CenterContainer/AuthPanel/AuthMargin/AuthVBox"]
 unique_name_in_owner = true
@@ -224,7 +244,7 @@ theme_override_styles/normal = SubResource("StyleInput")
 theme_override_colors/font_color = Color(0.85, 0.88, 0.78, 1)
 theme_override_colors/caret_color = Color(0.57, 0.78, 0.36, 1)
 theme_override_font_sizes/font_size = 14
-placeholder_text = "Digite seu usuário"
+placeholder_text = "voce@exemplo.com"
 clear_button_enabled = true
 
 [node name="PasswordLabel" type="Label" parent="CenterContainer/AuthPanel/AuthMargin/AuthVBox"]
@@ -242,6 +262,27 @@ theme_override_colors/font_color = Color(0.85, 0.88, 0.78, 1)
 theme_override_colors/caret_color = Color(0.57, 0.78, 0.36, 1)
 theme_override_font_sizes/font_size = 14
 placeholder_text = "Digite sua senha"
+secret = true
+clear_button_enabled = true
+
+[node name="ConfirmPasswordLabel" type="Label" parent="CenterContainer/AuthPanel/AuthMargin/AuthVBox"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 2
+theme_override_colors/font_color = Color(0.7, 0.75, 0.6, 1)
+theme_override_font_sizes/font_size = 13
+text = "Confirmar senha"
+
+[node name="ConfirmPasswordInput" type="LineEdit" parent="CenterContainer/AuthPanel/AuthMargin/AuthVBox"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 2
+custom_minimum_size = Vector2(0, 36)
+theme_override_styles/normal = SubResource("StyleInput")
+theme_override_colors/font_color = Color(0.85, 0.88, 0.78, 1)
+theme_override_colors/caret_color = Color(0.57, 0.78, 0.36, 1)
+theme_override_font_sizes/font_size = 14
+placeholder_text = "Digite a senha novamente"
 secret = true
 clear_button_enabled = true
 
@@ -313,6 +354,14 @@ theme_override_font_sizes/font_size = 13
 text = "Selecione um slot de save:"
 horizontal_alignment = 1
 
+[node name="SyncStatusLabel" type="Label" parent="CenterContainer/SlotPanel/SlotMargin/SlotVBox"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.7, 0.75, 0.6, 1)
+theme_override_font_sizes/font_size = 12
+text = "Verificando nuvem..."
+horizontal_alignment = 1
+
 [node name="SlotButtons" type="VBoxContainer" parent="CenterContainer/SlotPanel/SlotMargin/SlotVBox"]
 unique_name_in_owner = true
 layout_mode = 2
@@ -333,3 +382,21 @@ theme_override_colors/font_color = Color(0.78, 0.82, 0.68, 1)
 theme_override_colors/font_hover_color = Color(0.9, 0.93, 0.82, 1)
 theme_override_font_sizes/font_size = 13
 text = "Sair da conta"
+
+[node name="ConflictDialog" type="ConfirmationDialog" parent="."]
+unique_name_in_owner = true
+title = "CONFLITO DE SALVAMENTO"
+initial_position = 2
+size = Vector2i(520, 240)
+dialog_text = "Há versões diferentes desta partida no dispositivo e na nuvem."
+ok_button_text = "Usar este dispositivo"
+cancel_button_text = "Usar a nuvem"
+
+[node name="DeleteDialog" type="ConfirmationDialog" parent="."]
+unique_name_in_owner = true
+title = "APAGAR PARTIDA"
+initial_position = 2
+size = Vector2i(480, 220)
+dialog_text = "Esta partida será apagada do dispositivo e da nuvem."
+ok_button_text = "Apagar"
+cancel_button_text = "Cancelar"

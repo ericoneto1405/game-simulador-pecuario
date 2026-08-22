@@ -1697,3 +1697,14 @@ size = Vector2i(520, 380)
 unresizable = true
 theme = ExtResource("3_ui_theme")
 ok_button_text = "Continuar"
+
+[node name="SyncConflictDialog" type="ConfirmationDialog" parent="Interface"]
+unique_name_in_owner = true
+title = "CONFLITO DE SALVAMENTO"
+initial_position = 2
+size = Vector2i(540, 240)
+unresizable = true
+theme = ExtResource("3_ui_theme")
+dialog_text = "Esta partida também foi alterada em outro dispositivo."
+ok_button_text = "Usar este dispositivo"
+cancel_button_text = "Usar a nuvem"

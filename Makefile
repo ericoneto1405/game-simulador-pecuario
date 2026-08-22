@@ -8,13 +8,14 @@ SERVER_LOG := /tmp/game-simulador-pecuario-web.log
 TEST_LOG := /tmp/game-simulador-pecuario-test.log
 EXPORT_LOG := /tmp/game-simulador-pecuario-export.log
 
-.PHONY: help import test test-server web check serve stop free-port restart status
+.PHONY: help import test test-server validate-supabase web check serve stop free-port restart status
 
 help:
 	@echo "Comandos disponíveis:"
 	@echo "  make import   Importa os recursos visuais do Godot"
 	@echo "  make test     Executa os testes automáticos"
 	@echo "  make test-server Valida o servidor de horário"
+	@echo "  make validate-supabase Valida o ambiente Supabase configurado"
 	@echo "  make web      Gera a versão Web"
 	@echo "  make check    Executa os testes e gera a versão Web"
 	@echo "  make serve    Gera e inicia o servidor em http://localhost:$(PORT)"
@@ -30,7 +31,10 @@ test: import
 	@$(GODOT) --headless --log-file "$(TEST_LOG)" --path . --script res://tests/smoke_test.gd
 
 test-server:
-	@python3 -m unittest discover -s tests -p 'test_time_server.py'
+	@python3 -m unittest discover -s tests -p 'test_*.py'
+
+validate-supabase:
+	@python3 tools/validate_supabase.py
 
 web: import
 	@$(GODOT) --headless --log-file "$(EXPORT_LOG)" --path . --export-release Web "$(WEB_DIR)/index.html"
